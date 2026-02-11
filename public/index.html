@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Garment Intake — Dry Cleaning Check-In</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>GARMENT INTAKE</h1>
+    <div class="header-controls">
+      <label for="cameraSelect">Camera:</label>
+      <select id="cameraSelect"></select>
+    </div>
+  </header>
+
+  <main>
+    <!-- LEFT: Camera Feed -->
+    <section class="camera-panel">
+      <div class="camera-container">
+        <video id="cameraFeed" autoplay playsinline></video>
+        <canvas id="captureCanvas" style="display:none;"></canvas>
+
+        <!-- Corner brackets overlay -->
+        <div class="bracket top-left"></div>
+        <div class="bracket top-right"></div>
+        <div class="bracket bottom-left"></div>
+        <div class="bracket bottom-right"></div>
+
+        <!-- Flash overlay -->
+        <div id="flashOverlay" class="flash-overlay"></div>
+
+        <!-- State prompt -->
+        <div id="statePrompt" class="state-prompt">
+          Initializing camera...
+        </div>
+
+        <!-- Detection indicator -->
+        <div id="detectionIndicator" class="detection-indicator"></div>
+      </div>
+
+      <!-- Damage capture controls (shown in State 2 only) -->
+      <div id="damageControls" class="damage-controls hidden">
+        <button id="btnCaptureDamage" class="btn btn-damage">Capture Damage</button>
+        <button id="btnSkipDamage" class="btn btn-skip">Skip — No Damage</button>
+      </div>
+    </section>
+
+    <!-- CENTER: Current Garment Details -->
+    <section class="details-panel">
+      <h2 id="detailsTitle">Current Garment</h2>
+      <div id="stateIndicator" class="state-indicator">
+        <span class="state-dot" data-state="1"></span>
+        <span class="state-label">Scan</span>
+        <span class="state-line"></span>
+        <span class="state-dot" data-state="2"></span>
+        <span class="state-label">Damage</span>
+        <span class="state-line"></span>
+        <span class="state-dot" data-state="3"></span>
+        <span class="state-label">Label</span>
+        <span class="state-line"></span>
+        <span class="state-dot" data-state="4"></span>
+        <span class="state-label">Done</span>
+      </div>
+
+      <div class="fields-scroll">
+        <!-- Garment Info -->
+        <fieldset class="field-group" id="groupGarment">
+          <legend>Garment Info</legend>
+          <div class="field-row">
+            <label for="fieldType">Type</label>
+            <input type="text" id="fieldType" placeholder="Waiting for scan...">
+          </div>
+          <div class="field-row">
+            <label for="fieldColor">Color</label>
+            <input type="text" id="fieldColor" placeholder="Waiting for scan...">
+          </div>
+          <div class="field-row">
+            <label for="fieldBrand">Brand</label>
+            <input type="text" id="fieldBrand" placeholder="Waiting for scan...">
+          </div>
+        </fieldset>
+
+        <!-- Damage -->
+        <fieldset class="field-group" id="groupDamage">
+          <legend>Damage</legend>
+          <div id="damageList" class="damage-list">
+            <p class="placeholder-text">No damage recorded</p>
+          </div>
+        </fieldset>
+
+        <!-- Care Instructions -->
+        <fieldset class="field-group" id="groupCare">
+          <legend>Care Instructions</legend>
+          <div class="field-row">
+            <label for="fieldFiber">Fiber Content</label>
+            <input type="text" id="fieldFiber" placeholder="Waiting for label scan...">
+          </div>
+          <div class="field-row">
+            <label for="fieldDryClean">Dry Clean</label>
+            <input type="text" id="fieldDryClean" placeholder="Waiting for label scan...">
+          </div>
+          <div class="field-row">
+            <label for="fieldWashing">Washing</label>
+            <input type="text" id="fieldWashing" placeholder="Waiting for label scan...">
+          </div>
+          <div class="field-row">
+            <label for="fieldDrying">Drying</label>
+            <input type="text" id="fieldDrying" placeholder="Waiting for label scan...">
+          </div>
+          <div class="field-row">
+            <label for="fieldIroning">Ironing</label>
+            <input type="text" id="fieldIroning" placeholder="Waiting for label scan...">
+          </div>
+          <div class="field-row">
+            <label for="fieldBleaching">Bleaching</label>
+            <input type="text" id="fieldBleaching" placeholder="Waiting for label scan...">
+          </div>
+        </fieldset>
+
+        <!-- Customer Preferences -->
+        <fieldset class="field-group" id="groupPrefs">
+          <legend>Customer Preferences</legend>
+          <div class="field-row">
+            <label for="fieldPrefs">Notes</label>
+            <textarea id="fieldPrefs" rows="2" placeholder="e.g., light starch, no fold"></textarea>
+          </div>
+        </fieldset>
+      </div>
+
+      <!-- Complete state buttons -->
+      <div id="completeControls" class="complete-controls hidden">
+        <button id="btnAddToOrder" class="btn btn-confirm">Add to Order</button>
+        <button id="btnNewGarment" class="btn btn-new">New Garment</button>
+      </div>
+    </section>
+
+    <!-- RIGHT: Order List -->
+    <section class="order-panel">
+      <h2>Order <span id="orderCount">(0 items)</span></h2>
+      <div id="orderList" class="order-list">
+        <p class="placeholder-text" id="orderPlaceholder">No garments added yet. Start scanning to build the order.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
