@@ -237,8 +237,17 @@
         body: JSON.stringify({ image, mode }),
       });
 
-      if (!resp.ok) throw new Error('Detection request failed');
       const result = await resp.json();
+
+      if (!resp.ok) {
+        console.error('Detection API error:', result.error);
+        setDetectionText(result.error || 'API error');
+        detectionIndicator.classList.add('error');
+        detectionCount = 0;
+        return;
+      }
+
+      detectionIndicator.classList.remove('error');
 
       if (result.detected) {
         detectionCount++;
@@ -259,7 +268,8 @@
       }
     } catch (err) {
       console.error('Auto-scan error:', err);
-      setDetectionText('Error — retrying...');
+      setDetectionText('Network error — retrying...');
+      detectionIndicator.classList.add('error');
       detectionCount = 0;
     } finally {
       isProcessing = false;
@@ -291,8 +301,8 @@
         body: JSON.stringify({ image }),
       });
 
-      if (!resp.ok) throw new Error('Garment analysis failed');
       const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Garment analysis failed');
 
       currentGarment.garmentType = data.garmentType || '';
       currentGarment.color = data.color || '';
@@ -306,7 +316,7 @@
       transitionTo(STATES.DAMAGE_CAPTURE);
     } catch (err) {
       console.error('Garment analysis error:', err);
-      statePrompt.textContent = 'Analysis failed — retrying...';
+      statePrompt.textContent = err.message || 'Analysis failed — retrying...';
       detectionCount = 0;
       startAutoScan();
     }
@@ -324,8 +334,8 @@
         body: JSON.stringify({ image }),
       });
 
-      if (!resp.ok) throw new Error('Damage analysis failed');
       const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Damage analysis failed');
 
       const timestamp = new Date().toLocaleTimeString();
       const damageEntry = {
@@ -344,7 +354,7 @@
         'Damage recorded. Capture more or skip.';
     } catch (err) {
       console.error('Damage analysis error:', err);
-      statePrompt.textContent = 'Damage capture failed. Try again or skip.';
+      statePrompt.textContent = err.message || 'Damage capture failed. Try again or skip.';
     } finally {
       isProcessing = false;
       btnCaptureDamage.disabled = false;
@@ -376,8 +386,8 @@
         body: JSON.stringify({ image }),
       });
 
-      if (!resp.ok) throw new Error('Label analysis failed');
       const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Label analysis failed');
 
       currentGarment.fiberContent = data.fiberContent || '';
       currentGarment.dryClean = data.dryClean || '';
@@ -397,7 +407,7 @@
       transitionTo(STATES.COMPLETE);
     } catch (err) {
       console.error('Label analysis error:', err);
-      statePrompt.textContent = 'Label read failed — retrying...';
+      statePrompt.textContent = err.message || 'Label read failed — retrying...';
       detectionCount = 0;
       startAutoScan();
     }

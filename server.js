@@ -64,8 +64,12 @@ Respond with ONLY a JSON object: {"detected": true} or {"detected": false}`;
       res.json({ detected: false });
     }
   } catch (err) {
-    console.error('Detection error:', err.message);
-    res.status(500).json({ error: 'Detection failed' });
+    console.error('Detection error:', err.status, err.message);
+    if (err.error) console.error('Details:', JSON.stringify(err.error));
+    const detail = err.status === 401 ? 'Invalid API key' :
+                   err.status === 429 ? 'Rate limited — slow down' :
+                   err.message || 'Unknown error';
+    res.status(500).json({ error: `Detection failed: ${detail}` });
   }
 });
 
@@ -115,8 +119,12 @@ Respond with ONLY a JSON object in this exact format:
       res.status(500).json({ error: 'Could not parse garment analysis' });
     }
   } catch (err) {
-    console.error('Garment analysis error:', err.message);
-    res.status(500).json({ error: 'Garment analysis failed' });
+    console.error('Garment analysis error:', err.status, err.message);
+    if (err.error) console.error('Details:', JSON.stringify(err.error));
+    const detail = err.status === 401 ? 'Invalid API key' :
+                   err.status === 429 ? 'Rate limited — slow down' :
+                   err.message || 'Unknown error';
+    res.status(500).json({ error: `Garment analysis failed: ${detail}` });
   }
 });
 
@@ -167,8 +175,12 @@ Respond with ONLY a JSON object:
       res.status(500).json({ error: 'Could not parse damage analysis' });
     }
   } catch (err) {
-    console.error('Damage analysis error:', err.message);
-    res.status(500).json({ error: 'Damage analysis failed' });
+    console.error('Damage analysis error:', err.status, err.message);
+    if (err.error) console.error('Details:', JSON.stringify(err.error));
+    const detail = err.status === 401 ? 'Invalid API key' :
+                   err.status === 429 ? 'Rate limited — slow down' :
+                   err.message || 'Unknown error';
+    res.status(500).json({ error: `Damage analysis failed: ${detail}` });
   }
 });
 
@@ -223,8 +235,12 @@ Respond with ONLY a JSON object:
       res.status(500).json({ error: 'Could not parse label analysis' });
     }
   } catch (err) {
-    console.error('Label analysis error:', err.message);
-    res.status(500).json({ error: 'Label analysis failed' });
+    console.error('Label analysis error:', err.status, err.message);
+    if (err.error) console.error('Details:', JSON.stringify(err.error));
+    const detail = err.status === 401 ? 'Invalid API key' :
+                   err.status === 429 ? 'Rate limited — slow down' :
+                   err.message || 'Unknown error';
+    res.status(500).json({ error: `Label analysis failed: ${detail}` });
   }
 });
 
