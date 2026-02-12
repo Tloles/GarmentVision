@@ -14,9 +14,10 @@
   };
 
   let currentState = STATES.GARMENT_SCAN;
-  let detectionCount = 0; // consecutive positive detections for stability
-  let isProcessing = false; // prevent overlapping API calls
+  let stabilityScore = 0; // 0-100 rolling confidence
+  let isProcessing = false;
   let scanInterval = null;
+  let processingTextInterval = null;
 
   // Current garment data
   let currentGarment = createEmptyGarment();
@@ -43,6 +44,9 @@
   const orderCount = document.getElementById('orderCount');
   const orderPlaceholder = document.getElementById('orderPlaceholder');
   const brackets = document.querySelectorAll('.bracket');
+  const stabilityMeter = document.getElementById('stabilityMeter');
+  const stabilityFill = document.getElementById('stabilityFill');
+  const stabilityText = document.getElementById('stabilityText');
 
   // Field refs
   const fields = {
@@ -69,6 +73,45 @@
   // State dots
   const stateDots = document.querySelectorAll('.state-dot');
 
+  // ---- AUDIO FEEDBACK ----
+
+  let audioCtx = null;
+
+  function getAudioContext() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    return audioCtx;
+  }
+
+  function playTone(freq, duration, volume, startDelay) {
+    try {
+      const ctx = getAudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      const start = ctx.currentTime + (startDelay || 0);
+      gain.gain.setValueAtTime(volume, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
+      osc.start(start);
+      osc.stop(start + duration);
+    } catch (e) {
+      // Audio not available, silently ignore
+    }
+  }
+
+  function playDetectionTick() {
+    playTone(600, 0.06, 0.06, 0);
+  }
+
+  function playCaptureSound() {
+    playTone(880, 0.12, 0.1, 0);
+    playTone(1100, 0.15, 0.12, 0.1);
+  }
+
   // ---- HELPERS ----
 
   function createEmptyGarment() {
@@ -92,7 +135,6 @@
     captureCanvas.width = cameraFeed.videoWidth;
     captureCanvas.height = cameraFeed.videoHeight;
     ctx.drawImage(cameraFeed, 0, 0);
-    // Return base64 without the data:image/jpeg;base64, prefix
     const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.8);
     return dataUrl.split(',')[1];
   }
@@ -104,7 +146,7 @@
 
   function setBracketState(state) {
     brackets.forEach((b) => {
-      b.classList.remove('detecting', 'captured');
+      b.classList.remove('detecting', 'locking', 'captured');
       if (state) b.classList.add(state);
     });
   }
@@ -151,14 +193,75 @@
     });
   }
 
+  // ---- STABILITY METER ----
+
+  function updateStabilityMeter() {
+    const pct = Math.min(100, Math.max(0, stabilityScore));
+    stabilityFill.style.width = pct + '%';
+
+    // Color coding
+    stabilityFill.classList.remove('low', 'medium', 'high');
+    if (pct >= 70) {
+      stabilityFill.classList.add('high');
+    } else if (pct >= 30) {
+      stabilityFill.classList.add('medium');
+    } else {
+      stabilityFill.classList.add('low');
+    }
+
+    // Text label
+    if (pct >= 85) {
+      stabilityText.textContent = 'READY TO CAPTURE';
+    } else if (pct >= 50) {
+      stabilityText.textContent = 'HOLD STEADY';
+    } else if (pct > 0) {
+      stabilityText.textContent = 'SEARCHING';
+    } else {
+      stabilityText.textContent = '';
+    }
+  }
+
+  function showStabilityMeter() {
+    stabilityMeter.classList.add('visible');
+  }
+
+  function hideStabilityMeter() {
+    stabilityMeter.classList.remove('visible');
+    stabilityScore = 0;
+    updateStabilityMeter();
+  }
+
+  // ---- PROGRESSIVE PROCESSING TEXT ----
+
+  function startProgressiveText(texts) {
+    let idx = 0;
+    stopProgressiveText();
+    statePrompt.innerHTML = '<span class="spinner"></span> ' + texts[0];
+    processingTextInterval = setInterval(() => {
+      idx++;
+      if (idx < texts.length) {
+        statePrompt.innerHTML = '<span class="spinner"></span> ' + texts[idx];
+      }
+    }, 1200);
+  }
+
+  function stopProgressiveText() {
+    if (processingTextInterval) {
+      clearInterval(processingTextInterval);
+      processingTextInterval = null;
+    }
+  }
+
   // ---- STATE MACHINE ----
 
   function transitionTo(state) {
     currentState = state;
-    detectionCount = 0;
+    stabilityScore = 0;
     isProcessing = false;
     setBracketState(null);
     setDetectionText('');
+    hideStabilityMeter();
+    stopProgressiveText();
 
     // Update state dots
     stateDots.forEach((dot) => {
@@ -204,7 +307,6 @@
         highlightGroup(null);
         completeControls.classList.remove('hidden');
         stopAutoScan();
-        // Mark all groups complete
         markGroupComplete('garment');
         markGroupComplete('damage');
         markGroupComplete('care');
@@ -217,7 +319,10 @@
 
   function startAutoScan() {
     stopAutoScan();
-    scanInterval = setInterval(autoScanTick, 2000);
+    stabilityScore = 0;
+    updateStabilityMeter();
+    showStabilityMeter();
+    scanInterval = setInterval(autoScanTick, 750);
   }
 
   function stopAutoScan() {
@@ -236,7 +341,6 @@
       currentState === STATES.GARMENT_SCAN ? 'garment' : 'label';
 
     isProcessing = true;
-    setDetectionText('Scanning...');
 
     try {
       const resp = await fetch('/api/detect', {
@@ -251,34 +355,69 @@
         console.error('Detection API error:', result.error);
         setDetectionText(result.error || 'API error');
         detectionIndicator.classList.add('error');
-        detectionCount = 0;
+        stabilityScore = Math.max(0, stabilityScore - 15);
+        updateStabilityMeter();
         return;
       }
 
       detectionIndicator.classList.remove('error');
 
       if (result.detected) {
-        detectionCount++;
-        setBracketState('detecting');
-        setDetectionText(
-          `Detected (${detectionCount}/2)`
-        );
+        // Map confidence to stability increment
+        const conf = (result.confidence || '').toLowerCase();
+        let increment = 30;
+        if (conf === 'high') increment = 45;
+        else if (conf === 'medium') increment = 30;
+        else if (conf === 'low') increment = 18;
 
-        // Require 2 consecutive detections for stability
-        if (detectionCount >= 2) {
+        stabilityScore = Math.min(100, stabilityScore + increment);
+        updateStabilityMeter();
+
+        // Progressive bracket states based on stability
+        if (stabilityScore >= 80) {
+          setBracketState('locking');
+        } else {
+          setBracketState('detecting');
+        }
+
+        // Audio tick on first detection
+        if (stabilityScore <= increment) {
+          playDetectionTick();
+        }
+
+        // Show progress text
+        const pct = Math.round(stabilityScore);
+        if (pct >= 85) {
+          setDetectionText('Locking on...');
+        } else {
+          setDetectionText('Stability: ' + pct + '%');
+        }
+
+        // Trigger capture at 100%
+        if (stabilityScore >= 100) {
           setDetectionText('Capturing...');
+          playCaptureSound();
           await performCapture(image);
         }
       } else {
-        detectionCount = 0;
-        setBracketState(null);
-        setDetectionText('Watching...');
+        // Decay stability on miss
+        stabilityScore = Math.max(0, stabilityScore - 25);
+        updateStabilityMeter();
+
+        if (stabilityScore > 0) {
+          setBracketState('detecting');
+          setDetectionText('Hold steady...');
+        } else {
+          setBracketState(null);
+          setDetectionText('Watching...');
+        }
       }
     } catch (err) {
       console.error('Auto-scan error:', err);
       setDetectionText('Network error — retrying...');
       detectionIndicator.classList.add('error');
-      detectionCount = 0;
+      stabilityScore = Math.max(0, stabilityScore - 15);
+      updateStabilityMeter();
     } finally {
       isProcessing = false;
     }
@@ -288,6 +427,7 @@
     stopAutoScan();
     triggerFlash();
     setBracketState('captured');
+    hideStabilityMeter();
 
     if (currentState === STATES.GARMENT_SCAN) {
       await analyzeGarment(image);
@@ -299,8 +439,11 @@
   // ---- ANALYSIS FUNCTIONS ----
 
   async function analyzeGarment(image) {
-    setDetectionText('Analyzing garment...');
-    statePrompt.innerHTML = '<span class="spinner"></span> Analyzing garment...';
+    startProgressiveText([
+      'Identifying garment...',
+      'Classifying type & color...',
+      'Checking for brand...',
+    ]);
 
     try {
       const resp = await fetch('/api/analyze/garment', {
@@ -311,6 +454,8 @@
 
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Garment analysis failed');
+
+      stopProgressiveText();
 
       currentGarment.garmentType = data.garmentType || '';
       currentGarment.color = data.color || '';
@@ -324,8 +469,9 @@
       transitionTo(STATES.DAMAGE_CAPTURE);
     } catch (err) {
       console.error('Garment analysis error:', err);
+      stopProgressiveText();
       statePrompt.textContent = err.message || 'Analysis failed — retrying...';
-      detectionCount = 0;
+      stabilityScore = 0;
       startAutoScan();
     }
   }
@@ -370,7 +516,6 @@
   }
 
   function renderDamageEntry(entry) {
-    // Remove placeholder if present
     const placeholder = damageList.querySelector('.placeholder-text');
     if (placeholder) placeholder.remove();
 
@@ -384,8 +529,12 @@
   }
 
   async function analyzeLabel(image) {
-    setDetectionText('Reading care label...');
-    statePrompt.innerHTML = '<span class="spinner"></span> Reading care label...';
+    startProgressiveText([
+      'Reading care symbols...',
+      'Extracting fiber content...',
+      'Interpreting wash instructions...',
+      'Finalizing care details...',
+    ]);
 
     try {
       const resp = await fetch('/api/analyze/label', {
@@ -396,6 +545,8 @@
 
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Label analysis failed');
+
+      stopProgressiveText();
 
       currentGarment.fiberContent = data.fiberContent || '';
       currentGarment.dryClean = data.dryClean || '';
@@ -415,8 +566,9 @@
       transitionTo(STATES.COMPLETE);
     } catch (err) {
       console.error('Label analysis error:', err);
+      stopProgressiveText();
       statePrompt.textContent = err.message || 'Label read failed — retrying...';
-      detectionCount = 0;
+      stabilityScore = 0;
       startAutoScan();
     }
   }
@@ -424,7 +576,6 @@
   // ---- ORDER MANAGEMENT ----
 
   function addToOrder() {
-    // Read current field values (staff may have edited them)
     currentGarment.garmentType = fields.type.value;
     currentGarment.color = fields.color.value;
     currentGarment.brand = fields.brand.value;
@@ -494,7 +645,6 @@
 
   async function enumerateCameras() {
     try {
-      // Request permission first to get labeled devices
       await navigator.mediaDevices.getUserMedia({ video: true });
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter((d) => d.kind === 'videoinput');
@@ -507,7 +657,6 @@
         cameraSelect.appendChild(option);
       });
 
-      // Default to the last camera (usually the dedicated USB camera)
       if (videoDevices.length > 0) {
         cameraSelect.value = videoDevices[videoDevices.length - 1].deviceId;
       }
@@ -521,7 +670,6 @@
   }
 
   async function startCamera(deviceId) {
-    // Stop any existing stream
     if (cameraFeed.srcObject) {
       cameraFeed.srcObject.getTracks().forEach((t) => t.stop());
     }
@@ -565,16 +713,14 @@
   btnBack.addEventListener('click', () => {
     stopAutoScan();
     isProcessing = false;
+    stopProgressiveText();
     if (currentState === STATES.DAMAGE_CAPTURE) {
-      // Going back to garment scan — un-complete the garment group
       groups.garment.classList.remove('complete');
       transitionTo(STATES.GARMENT_SCAN);
     } else if (currentState === STATES.CARE_LABEL) {
-      // Going back to damage capture
       groups.damage.classList.remove('complete');
       transitionTo(STATES.DAMAGE_CAPTURE);
     } else if (currentState === STATES.COMPLETE) {
-      // Going back to care label — un-complete the care group
       groups.care.classList.remove('complete');
       transitionTo(STATES.CARE_LABEL);
     }
@@ -602,12 +748,10 @@
 
     await startCamera(cameraSelect.value);
 
-    // Wait for video to be ready
     cameraFeed.addEventListener('loadeddata', () => {
       transitionTo(STATES.GARMENT_SCAN);
     }, { once: true });
 
-    // Fallback if loadeddata already fired
     if (cameraFeed.readyState >= 2) {
       transitionTo(STATES.GARMENT_SCAN);
     }

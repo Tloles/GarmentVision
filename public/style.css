@@ -161,12 +161,32 @@ main {
   border-color: var(--bracket-detect);
   width: 70px;
   height: 70px;
+  animation: bracketPulse 1s ease-in-out infinite;
+}
+
+.bracket.locking {
+  border-color: var(--bracket-captured);
+  width: 75px;
+  height: 75px;
+  box-shadow: 0 0 16px rgba(22, 163, 74, 0.6);
+  animation: bracketPulseFast 0.5s ease-in-out infinite;
 }
 
 .bracket.captured {
   border-color: var(--bracket-captured);
   width: 80px;
   height: 80px;
+  animation: none;
+}
+
+@keyframes bracketPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes bracketPulseFast {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
 }
 
 /* Flash overlay */
@@ -232,6 +252,58 @@ main {
 
 .detection-indicator.visible {
   opacity: 1;
+}
+
+/* Stability meter */
+.stability-meter {
+  position: absolute;
+  bottom: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  height: 5px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 3px;
+  z-index: 7;
+  overflow: visible;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.stability-meter.visible {
+  opacity: 1;
+}
+
+.stability-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+  transition: width 0.25s ease-out, background-color 0.3s ease;
+  background: var(--accent-red);
+}
+
+.stability-fill.low {
+  background: var(--accent-orange);
+}
+
+.stability-fill.medium {
+  background: var(--accent-yellow);
+}
+
+.stability-fill.high {
+  background: var(--accent-green);
+}
+
+.stability-text {
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 /* Damage controls */
