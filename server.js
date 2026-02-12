@@ -23,9 +23,52 @@ app.post('/api/detect', async (req, res) => {
 
     let prompt;
     if (mode === 'garment') {
-      prompt = `Look at this image. Is there a clear, stable, well-lit garment visible in the frame?
-The garment should be reasonably still (not blurry from motion) and clearly visible.
-Respond with ONLY a JSON object: {"detected": true} or {"detected": false}`;
+      prompt = `You are a garment detection system for a dry cleaning intake process.
+
+TASK: Determine if this frame shows a garment that is READY TO BE ANALYZED for check-in.
+
+A garment is READY only if ALL of these conditions are met:
+
+✓ ISOLATED PRESENTATION: The garment is being held up, laid flat, or displayed on its own
+  • NOT worn on a person's body
+  • NOT hanging in a closet in the background
+  • NOT draped over furniture
+  • Being actively presented to the camera for inspection
+
+✓ FILLS THE FRAME: The garment occupies at least 40% of the image
+  • You can see the full shape and type of garment
+  • Not a distant or partial view
+  • Main focus of the image
+
+✓ SHARP AND STABLE: The image is clear, not blurry
+  • No motion blur from movement
+  • In focus enough to identify fabric texture
+  • Garment is reasonably still
+
+✓ WELL LIT: Lighting allows you to see color and details
+  • Not too dark or shadowy
+  • Not harsh glare obscuring the fabric
+  • Can distinguish fabric color accurately
+
+REJECT the frame if:
+✗ Someone is wearing the garment (even if held in front of them)
+✗ The garment is in the background (on a hanger, chair, bed, etc.)
+✗ Only a small portion is visible (sleeve, collar, edge)
+✗ The image is blurry, dark, or overexposed
+✗ The garment is bunched, crumpled, or shape is unclear
+✗ You're seeing the person checking in, not the garment they're about to scan
+
+IMPORTANT: We are looking for a garment being actively PRESENTED for intake scanning. A person standing in front of the camera wearing their shirt is NOT what we want.
+
+Respond with ONLY a JSON object:
+{"detected": true, "reason": "brief note"} or {"detected": false, "reason": "brief note"}
+
+Examples:
+{"detected": true, "reason": "Dress shirt held up clearly in frame"}
+{"detected": false, "reason": "Person wearing shirt, not presenting for scan"}
+{"detected": false, "reason": "Garment hanging in background"}
+{"detected": false, "reason": "Motion blur, image not stable"}
+{"detected": false, "reason": "Only partial view of sleeve visible"}`;
     } else if (mode === 'label') {
       prompt = `You are a care label detection system for professional garment intake. Your job is to identify if a garment care label is visible and ready to be analyzed.
 
