@@ -447,7 +447,7 @@ app.post('/api/analyze/label', async (req, res) => {
 
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 700,
+      max_tokens: 300,
       messages: [
         {
           role: 'user',
@@ -462,7 +462,7 @@ app.post('/api/analyze/label', async (req, res) => {
             },
             {
               type: 'text',
-              text: `You are a professional garment care label analyst for a dry cleaning business. Your job is to read care labels and translate them into clear, actionable instructions that dry cleaning staff can follow.
+              text: `You are a professional garment care label analyst for a dry cleaning business. Your job is to read care labels and translate them into standardized categories that match the business's processing workflow.
 
 ═══════════════════════════════════════════════════════════════
 CARE LABEL COMPONENTS
@@ -474,144 +474,161 @@ Care labels contain two types of information:
 2. **SYMBOLS**: Five standardized ISO care symbols in this order:
    [WASH] [BLEACH] [DRY] [IRON] [DRY CLEAN]
 
+Your job is to read BOTH and classify each care instruction into ONE of the predefined standard categories below.
+
 ═══════════════════════════════════════════════════════════════
 SYMBOL INTERPRETATION GUIDE
 ═══════════════════════════════════════════════════════════════
 
 **1. WASHING (Washtub/Basin Symbol)**
 
-Basic shapes:
-- Washtub with number (30, 40, 60) → "Machine wash at [X]°C" or convert to Fahrenheit: 30°C=86°F, 40°C=104°F, 60°C=140°F
-- Washtub with dots → • = cold (30°C), •• = warm (40°C), ••• = hot (60°C)
-- Washtub with hand → "Hand wash only"
-- Washtub with single underline → "Gentle cycle"
-- Washtub with double underline → "Delicate/very gentle cycle"
-- Washtub with X → "Do not wash"
-- Empty washtub (no temp) → "Machine wash, any temperature"
+• Washtub with 30 or one dot → "Machine wash cold"
+• Washtub with 40 or two dots → "Machine wash warm"
+• Washtub with 60 or three dots → "Machine wash hot"
+• Washtub with hand → "Hand wash only"
+• Washtub with X → "Do not wash"
+• Empty washtub (no temp) → "Machine wash cold" (default to cold for safety)
 
 **2. BLEACHING (Triangle Symbol)**
 
-- Empty triangle → "Bleach allowed (any type)"
-- Triangle with two diagonal lines → "Non-chlorine bleach only"
-- Triangle with X → "Do not bleach"
-- Solid black triangle → "Non-chlorine bleach only"
+• Empty triangle OR triangle with lines → "Bleach allowed"
+• Triangle with X → "Do not bleach"
 
 **3. DRYING (Square Symbol)**
 
 Square alone:
-- Square with three vertical lines → "Line dry / Hang to dry"
-- Square with one horizontal line → "Dry flat / Lay flat to dry"
-- Square with curved line in corner → "Line dry in shade"
-- Square with X → "Do not dry"
+• Square with three vertical lines → "Line dry / Hang dry"
+• Square with one horizontal line → "Dry flat"
+• Square with curved line → "Line dry / Hang dry"
 
 Square with circle inside (tumble dry):
-- Circle with one dot → "Tumble dry low heat"
-- Circle with two dots → "Tumble dry medium heat"
-- Circle with three dots → "Tumble dry high heat"
-- Circle (no dots) → "Tumble dry, any heat"
-- Circle with X → "Do not tumble dry"
+• Circle with one dot → "Tumble dry low heat"
+• Circle with two dots → "Tumble dry medium heat"
+• Circle with three dots → "Tumble dry high heat"
+• Circle with X → "Do not tumble dry"
 
 **4. IRONING (Iron Symbol)**
 
-- Iron with one dot → "Iron low heat (110°C / 230°F) — synthetics, nylon, acrylic"
-- Iron with two dots → "Iron medium heat (150°C / 300°F) — wool, polyester blends"
-- Iron with three dots → "Iron high heat (200°C / 390°F) — cotton, linen"
-- Iron (no dots) → "Iron, any temperature"
-- Iron with X → "Do not iron"
-- Iron with crossed-out steam lines → "Do not steam"
+• Iron with any dots → "Iron allowed"
+• Iron (no dots) → "Iron allowed"
+• Iron with X → "Do not iron"
 
 **5. DRY CLEANING (Circle Symbol)**
 
-- Circle with P → "Professional dry clean, perchloroethylene (perc) solvent"
-- Circle with F → "Professional dry clean, petroleum-based solvent only"
-- Circle with W → "Professional wet clean only"
-- Circle (empty, no letter) → "Professional dry clean, any solvent"
-- Circle with single underline → "Gentle dry cleaning process"
-- Circle with double underline → "Very gentle dry cleaning process"
-- Circle with X → "Do not dry clean"
+• Circle (with or without P, F, W, or underlines) → "Dry clean only"
+• Circle with X → "Do not dry clean"
+• If text says "Dry clean only" → "Dry clean only"
 
-**IMPORTANT DRY CLEANING NOTES:**
-- Circle symbol = this is a dry cleaning item
-- If you see "Dry clean only" in text OR a circle symbol → this garment REQUIRES professional dry cleaning
-- P and F indicate which solvents are safe — this is critical for proper cleaning
+═══════════════════════════════════════════════════════════════
+STANDARDIZED OUTPUT CATEGORIES
+═══════════════════════════════════════════════════════════════
+
+You MUST choose EXACTLY ONE option from each list. Do not create custom responses.
+
+**dryClean** — Choose ONE:
+• "Dry clean only"
+• "Do not dry clean"
+• "Not specified"
+
+**washing** — Choose ONE:
+• "Do not wash"
+• "Hand wash only"
+• "Machine wash cold"
+• "Machine wash warm"
+• "Machine wash hot"
+• "Not specified"
+
+**drying** — Choose ONE:
+• "Do not tumble dry"
+• "Tumble dry low heat"
+• "Tumble dry medium heat"
+• "Tumble dry high heat"
+• "Line dry / Hang dry"
+• "Dry flat"
+• "Not specified"
+
+**ironing** — Choose ONE:
+• "Do not iron"
+• "Iron allowed"
+• "Not specified"
+
+**bleaching** — Choose ONE:
+• "Do not bleach"
+• "Bleach allowed"
+• "Not specified"
+
+═══════════════════════════════════════════════════════════════
+CLASSIFICATION RULES
+═══════════════════════════════════════════════════════════════
+
+1. If you see a circle symbol OR text saying "Dry clean only" → dryClean = "Dry clean only"
+2. If you see a circle with X → dryClean = "Do not dry clean"
+3. If no circle symbol and no dry clean text → dryClean = "Not specified"
+4. When temperature is ambiguous, default to the SAFEST option (cold wash, low heat dry)
+5. If a symbol is unclear or not visible → use "Not specified" for that category
+6. When text and symbols conflict, trust the SYMBOLS (international standard)
 
 ═══════════════════════════════════════════════════════════════
 FIBER CONTENT EXTRACTION
 ═══════════════════════════════════════════════════════════════
 
-Look for text like:
-- "100% Cotton"
-- "65% Polyester, 35% Cotton"
-- "Shell: 100% Wool / Lining: 100% Polyester"
-- "80% Acrylic, 15% Nylon, 5% Spandex"
+Copy the EXACT fiber content text as written:
+• "100% Cotton"
+• "65% Polyester, 35% Cotton"
+• "Shell: 100% Wool / Lining: 100% Polyester"
 
-Copy the EXACT text as written on the label. Include all components if multiple materials.
-
-═══════════════════════════════════════════════════════════════
-EXTRACTION RULES
-═══════════════════════════════════════════════════════════════
-
-1. **Read BOTH symbols AND text** — some labels have only symbols, some only text, most have both
-2. **Translate symbols into plain English instructions** — don't just say "circle with P", say "Professional dry clean with perc solvent"
-3. **Be specific about temperatures** when shown
-4. **If a symbol is crossed out (X)**, that means DO NOT do that action
-5. **When text and symbols conflict**, trust the symbols (they're the international standard)
-6. **If you can't see a particular symbol clearly**, say "Not specified" for that field
+If no fiber content is visible, return "Not specified"
 
 ═══════════════════════════════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════════════════════════════
 
-Return ONLY valid JSON:
+Return ONLY valid JSON using the exact category names:
 
 {
-  "fiberContent": "exact text from label, or 'Not specified'",
-  "dryClean": "dry cleaning instructions translated from symbol/text",
-  "washing": "washing instructions translated from symbol/text",
-  "drying": "drying instructions translated from symbol/text",
-  "ironing": "ironing instructions translated from symbol/text",
-  "bleaching": "bleaching instructions translated from symbol/text",
-  "specialNotes": "any other important warnings or notes from the label"
+  "fiberContent": "exact text from label or 'Not specified'",
+  "dryClean": "one of the three dryClean options",
+  "washing": "one of the six washing options",
+  "drying": "one of the seven drying options",
+  "ironing": "one of the three ironing options",
+  "bleaching": "one of the three bleaching options"
 }
 
-**Example outputs:**
+**Correct examples:**
 
-Label with symbols:
+Silk dress shirt with dry clean symbol:
 {
   "fiberContent": "100% Silk",
-  "dryClean": "Professional dry clean with perc solvent (P)",
+  "dryClean": "Dry clean only",
   "washing": "Do not wash",
   "drying": "Do not tumble dry",
-  "ironing": "Iron low heat (110°C)",
-  "bleaching": "Do not bleach",
-  "specialNotes": "Delicate fabric, dry clean only"
+  "ironing": "Iron allowed",
+  "bleaching": "Do not bleach"
 }
 
-Label with text instructions:
+Cotton t-shirt label:
 {
-  "fiberContent": "60% Cotton, 40% Polyester",
-  "dryClean": "Dry clean recommended",
-  "washing": "Machine wash cold, gentle cycle",
-  "drying": "Tumble dry low heat",
-  "ironing": "Iron medium heat if needed",
-  "bleaching": "Non-chlorine bleach only",
-  "specialNotes": null
+  "fiberContent": "100% Cotton",
+  "dryClean": "Not specified",
+  "washing": "Machine wash warm",
+  "drying": "Tumble dry medium heat",
+  "ironing": "Iron allowed",
+  "bleaching": "Bleach allowed"
 }
 
-Label with "Dry Clean Only":
+Wool sweater:
 {
-  "fiberContent": "100% Wool",
-  "dryClean": "Dry clean only — do not attempt home washing",
-  "washing": "Do not wash",
-  "drying": "Professional dry only",
-  "ironing": "Steam iron medium heat if needed",
-  "bleaching": "Do not bleach",
-  "specialNotes": "Wool garment requires professional care"
+  "fiberContent": "100% Merino Wool",
+  "dryClean": "Dry clean only",
+  "washing": "Hand wash only",
+  "drying": "Dry flat",
+  "ironing": "Do not iron",
+  "bleaching": "Do not bleach"
 }
 
 ═══════════════════════════════════════════════════════════════
 
-CRITICAL: Translate the care symbols into actionable English instructions that dry cleaning staff can understand and follow. Be specific, clear, and complete.`,
+CRITICAL: You must select from the predefined categories ONLY. Do not create variations or custom text. If unsure, use "Not specified".`,
             },
           ],
         },

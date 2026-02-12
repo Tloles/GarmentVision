@@ -55,7 +55,6 @@
     drying: document.getElementById('fieldDrying'),
     ironing: document.getElementById('fieldIroning'),
     bleaching: document.getElementById('fieldBleaching'),
-    specialNotes: document.getElementById('fieldSpecialNotes'),
     prefs: document.getElementById('fieldPrefs'),
   };
 
@@ -83,7 +82,6 @@
       drying: '',
       ironing: '',
       bleaching: '',
-      specialNotes: '',
       damages: [],
       preferences: '',
     };
@@ -405,7 +403,6 @@
       currentGarment.drying = data.drying || '';
       currentGarment.ironing = data.ironing || '';
       currentGarment.bleaching = data.bleaching || '';
-      currentGarment.specialNotes = data.specialNotes || '';
 
       setFieldValue(fields.fiber, data.fiberContent);
       setFieldValue(fields.dryClean, data.dryClean);
@@ -413,7 +410,6 @@
       setFieldValue(fields.drying, data.drying);
       setFieldValue(fields.ironing, data.ironing);
       setFieldValue(fields.bleaching, data.bleaching);
-      setFieldValue(fields.specialNotes, data.specialNotes);
 
       markGroupComplete('care');
       transitionTo(STATES.COMPLETE);
@@ -438,7 +434,6 @@
     currentGarment.drying = fields.drying.value;
     currentGarment.ironing = fields.ironing.value;
     currentGarment.bleaching = fields.bleaching.value;
-    currentGarment.specialNotes = fields.specialNotes.value;
     currentGarment.preferences = fields.prefs.value;
 
     order.push({ ...currentGarment });
