@@ -27,25 +27,120 @@ app.post('/api/detect', async (req, res) => {
 The garment should be reasonably still (not blurry from motion) and clearly visible.
 Respond with ONLY a JSON object: {"detected": true} or {"detected": false}`;
     } else if (mode === 'label') {
-      prompt = `Look at this image. Is there a garment care label or tag visible?
+      prompt = `You are a care label detection system for professional garment intake. Your job is to identify if a garment care label is visible and ready to be analyzed.
 
-Answer YES (detected: true) if you see ANY of the following:
-- A sewn-in fabric tag or label on a garment
-- Standardized care symbols (washtub, triangle, circle, square, iron icons)
-- Text listing fiber/material content (e.g. "100% Cotton", "Polyester")
-- Any printed or woven label with washing/care instructions
-- A small tag with text or symbols, even if partially visible
+═══════════════════════════════════════════════════════════════
+WHAT IS A CARE LABEL?
+═══════════════════════════════════════════════════════════════
 
-Be generous — if there is any kind of garment tag or label visible, even small or at an angle, answer true.
+A care label is a tag attached to a garment (sewn-in, printed, or woven) that contains:
 
-Respond with ONLY a JSON object: {"detected": true} or {"detected": false}`;
+**PRIMARY INDICATORS (if you see ANY of these, it's a care label):**
+✓ ISO standardized care symbols (the internationally recognized icons):
+  • WASHING: Washtub/basin icon (may have temperature numbers, hand symbol, or X through it)
+  • BLEACHING: Triangle icon (empty, with lines, or X through it)
+  • DRYING: Square icon (may contain circle, lines, dots, or be empty)
+  • IRONING: Iron icon (may have dots indicating temperature or X through it)
+  • DRY CLEANING: Circle icon (may contain letters P, F, W or X through it)
+  • PROFESSIONAL WET CLEANING: Circle with W inside
+
+✓ Fiber content text:
+  • "100% Cotton", "80% Polyester 20% Spandex", "Pure Silk"
+  • "Shell: 100% Wool | Lining: 100% Polyester"
+  • Material composition percentages
+  • RN numbers (e.g., "RN 12345")
+
+✓ Written care instructions in any language:
+  • "Machine wash cold", "Hand wash only", "Dry clean only"
+  • "Do not bleach", "Tumble dry low", "Iron on low heat"
+  • Non-English instructions
+
+✓ Country of origin:
+  • "Made in China", "Made in Italy", etc.
+
+**PHYSICAL CHARACTERISTICS:**
+• Usually white, cream, or light-colored fabric/paper
+• Typically rectangular, 1-3 inches wide
+• Often sewn into side seams, necklines, or waistbands
+• May be folded over or partially tucked in
+• Text is usually small, printed in black or dark ink
+• Symbols are arranged in a horizontal row (typically 5 symbols)
+
+═══════════════════════════════════════════════════════════════
+DETECTION RULES
+═══════════════════════════════════════════════════════════════
+
+**Answer YES (detected: true) if:**
+• You can see at least ONE care symbol clearly
+• You can read ANY fiber content text (even partial like "100% Cot...")
+• You see a small rectangular tag with text/symbols, even if blurry or at an angle
+• The label is partially folded but symbols or text are still visible
+• Multiple labels are visible (size tag + care tag)
+• The label is on the inside of a garment but flipped outward and visible
+
+**Answer NO (detected: false) if:**
+• The image shows only the outside of a garment with no tag visible
+• You see a brand logo or brand name tag, but NO care symbols or fiber content
+• The tag is too blurry or dark to make out any symbols or text
+• You see a price tag or store tag, but no care label
+• The only visible text is a brand name, size, or style number
+
+**EDGE CASES:**
+• Size tags often appear with care tags → if EITHER has care symbols, answer YES
+• Old/faded labels with barely visible symbols → if you can make out the shape of ANY symbol, answer YES
+• Labels at sharp angles or partially folded → if ANY text or symbols are legible, answer YES
+• Non-English labels → YES, care symbols are international standard
+• Printed labels directly on fabric → YES, these count as care labels
+
+═══════════════════════════════════════════════════════════════
+SYMBOL RECOGNITION GUIDE
+═══════════════════════════════════════════════════════════════
+
+If you're unsure whether something is a care symbol, here are the five standard shapes:
+
+1. **WASHTUB** — Looks like a trapezoid or bucket shape
+2. **TRIANGLE** — Simple triangle
+3. **SQUARE** — Square shape, often with a circle inside
+4. **IRON** — Old-fashioned iron shape with a flat bottom and handle
+5. **CIRCLE** — Simple circle, often with a letter inside
+
+These five symbols appear in sequence on almost every garment care label worldwide.
+
+═══════════════════════════════════════════════════════════════
+RESPONSE FORMAT
+═══════════════════════════════════════════════════════════════
+
+Respond with ONLY a JSON object:
+
+{
+  "detected": true or false,
+  "reason": "brief explanation of what you see or why not detected",
+  "confidence": "high" or "medium" or "low"
+}
+
+**Examples:**
+
+Good detections:
+{"detected": true, "reason": "Five care symbols visible in a row", "confidence": "high"}
+{"detected": true, "reason": "Fiber content visible: 100% Cotton", "confidence": "high"}
+{"detected": true, "reason": "Partial care label visible at angle, can see washtub and triangle symbols", "confidence": "medium"}
+{"detected": true, "reason": "White tag with Made in China and washing instructions", "confidence": "high"}
+
+Correct rejections:
+{"detected": false, "reason": "Only brand logo visible, no care symbols or fiber content", "confidence": "high"}
+{"detected": false, "reason": "Tag too blurry to read any text or symbols", "confidence": "medium"}
+{"detected": false, "reason": "Only showing exterior of garment, no tags visible", "confidence": "high"}
+
+═══════════════════════════════════════════════════════════════
+
+BE GENEROUS: When in doubt, if there's ANY indication of a care label (even partially visible), answer TRUE. It's better to attempt analysis on a marginal label than to miss a valid one.`;
     } else {
       return res.status(400).json({ error: 'Invalid mode. Use "garment" or "label".' });
     }
 
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 100,
+      max_tokens: 200,
       messages: [
         {
           role: 'user',
