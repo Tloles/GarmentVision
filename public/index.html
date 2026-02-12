@@ -50,18 +50,21 @@
     <!-- CENTER: Current Garment Details -->
     <section class="details-panel">
       <h2 id="detailsTitle">Current Garment</h2>
-      <div id="stateIndicator" class="state-indicator">
-        <span class="state-dot" data-state="1"></span>
-        <span class="state-label">Scan</span>
-        <span class="state-line"></span>
-        <span class="state-dot" data-state="2"></span>
-        <span class="state-label">Damage</span>
-        <span class="state-line"></span>
-        <span class="state-dot" data-state="3"></span>
-        <span class="state-label">Label</span>
-        <span class="state-line"></span>
-        <span class="state-dot" data-state="4"></span>
-        <span class="state-label">Done</span>
+      <div class="state-nav">
+        <button id="btnBack" class="btn btn-back hidden" title="Go back">&#8592; Back</button>
+        <div id="stateIndicator" class="state-indicator">
+          <span class="state-dot" data-state="1"></span>
+          <span class="state-label">Scan</span>
+          <span class="state-line"></span>
+          <span class="state-dot" data-state="2"></span>
+          <span class="state-label">Damage</span>
+          <span class="state-line"></span>
+          <span class="state-dot" data-state="3"></span>
+          <span class="state-label">Label</span>
+          <span class="state-line"></span>
+          <span class="state-dot" data-state="4"></span>
+          <span class="state-label">Done</span>
+        </div>
       </div>
 
       <div class="fields-scroll">

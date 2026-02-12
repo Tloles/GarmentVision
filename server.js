@@ -27,9 +27,17 @@ app.post('/api/detect', async (req, res) => {
 The garment should be reasonably still (not blurry from motion) and clearly visible.
 Respond with ONLY a JSON object: {"detected": true} or {"detected": false}`;
     } else if (mode === 'label') {
-      prompt = `Look at this image. Is there a clear care label visible in the frame?
-A care label typically has text about fiber content, washing instructions, or care symbols.
-It should be readable and in focus.
+      prompt = `Look at this image. Is there a garment care label or tag visible?
+
+Answer YES (detected: true) if you see ANY of the following:
+- A sewn-in fabric tag or label on a garment
+- Standardized care symbols (washtub, triangle, circle, square, iron icons)
+- Text listing fiber/material content (e.g. "100% Cotton", "Polyester")
+- Any printed or woven label with washing/care instructions
+- A small tag with text or symbols, even if partially visible
+
+Be generous — if there is any kind of garment tag or label visible, even small or at an angle, answer true.
+
 Respond with ONLY a JSON object: {"detected": true} or {"detected": false}`;
     } else {
       return res.status(400).json({ error: 'Invalid mode. Use "garment" or "label".' });
@@ -209,15 +217,24 @@ app.post('/api/analyze/label', async (req, res) => {
             },
             {
               type: 'text',
-              text: `Read this garment care label. Extract the following information:
-- fiberContent: What materials/fibers is the garment made of? (e.g., "100% Cotton", "65% Polyester, 35% Cotton")
-- dryClean: Dry cleaning instructions (e.g., "Dry clean only", "Do not dry clean", "Dry clean recommended")
-- washing: Washing instructions (e.g., "Machine wash cold", "Hand wash only", "Do not wash")
-- drying: Drying instructions (e.g., "Tumble dry low", "Line dry", "Do not tumble dry")
-- ironing: Ironing instructions (e.g., "Iron low heat", "Do not iron", "Steam only")
-- bleaching: Bleaching instructions (e.g., "Do not bleach", "Non-chlorine bleach only")
+              text: `Read this garment care label carefully. It may contain text, standardized care symbols, or both.
 
-If any field is not readable or not present on the label, use "Not specified".
+STANDARDIZED CARE SYMBOLS TO LOOK FOR:
+- WASHTUB (bucket shape): washing instructions. Number inside = max temperature. Hand in tub = hand wash. X through it = do not wash.
+- TRIANGLE: bleaching. Empty = any bleach OK. Lines inside = non-chlorine only. X through it = do not bleach.
+- CIRCLE: dry cleaning. Letter inside (P, F, W) = solvent type. X through it = do not dry clean.
+- SQUARE: drying. Circle inside = tumble dry. Lines = line dry/flat dry. X through it = do not tumble dry. Dots inside circle = heat level.
+- IRON: ironing. Dots inside = heat level (1=low, 2=medium, 3=high). X through it = do not iron.
+
+Extract ALL of the following from both text AND symbols:
+- fiberContent: Materials/fibers (e.g., "100% Cotton", "65% Polyester, 35% Cotton")
+- dryClean: Dry cleaning instructions
+- washing: Washing instructions (include temperature if shown)
+- drying: Drying instructions
+- ironing: Ironing instructions
+- bleaching: Bleaching instructions
+
+If a field is not present on the label, use "Not specified".
 
 Respond with ONLY a JSON object:
 {"fiberContent": "...", "dryClean": "...", "washing": "...", "drying": "...", "ironing": "...", "bleaching": "..."}`,

@@ -37,6 +37,7 @@
   const btnSkipDamage = document.getElementById('btnSkipDamage');
   const btnAddToOrder = document.getElementById('btnAddToOrder');
   const btnNewGarment = document.getElementById('btnNewGarment');
+  const btnBack = document.getElementById('btnBack');
   const damageList = document.getElementById('damageList');
   const orderList = document.getElementById('orderList');
   const orderCount = document.getElementById('orderCount');
@@ -170,6 +171,13 @@
     // Hide all contextual controls
     damageControls.classList.add('hidden');
     completeControls.classList.add('hidden');
+
+    // Show back button on states 2, 3, 4 (not on state 1)
+    if (state > STATES.GARMENT_SCAN) {
+      btnBack.classList.remove('hidden');
+    } else {
+      btnBack.classList.add('hidden');
+    }
 
     switch (state) {
       case STATES.GARMENT_SCAN:
@@ -552,6 +560,24 @@
   btnSkipDamage.addEventListener('click', () => {
     markGroupComplete('damage');
     transitionTo(STATES.CARE_LABEL);
+  });
+
+  btnBack.addEventListener('click', () => {
+    stopAutoScan();
+    isProcessing = false;
+    if (currentState === STATES.DAMAGE_CAPTURE) {
+      // Going back to garment scan — un-complete the garment group
+      groups.garment.classList.remove('complete');
+      transitionTo(STATES.GARMENT_SCAN);
+    } else if (currentState === STATES.CARE_LABEL) {
+      // Going back to damage capture
+      groups.damage.classList.remove('complete');
+      transitionTo(STATES.DAMAGE_CAPTURE);
+    } else if (currentState === STATES.COMPLETE) {
+      // Going back to care label — un-complete the care group
+      groups.care.classList.remove('complete');
+      transitionTo(STATES.CARE_LABEL);
+    }
   });
 
   btnAddToOrder.addEventListener('click', () => {
