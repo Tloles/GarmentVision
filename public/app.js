@@ -466,7 +466,7 @@
         <span class="card-number">#${index}</span>
       </div>
       <div class="card-title">${escapeHtml(garment.color)} ${escapeHtml(garment.garmentType)}</div>
-      ${garment.brand && garment.brand !== 'Not visible' ? `<div class="card-detail">${escapeHtml(garment.brand)}</div>` : ''}
+      ${garment.brand ? `<div class="card-detail">${escapeHtml(garment.brand)}</div>` : ''}
       ${tagsHtml ? `<div class="card-tags">${tagsHtml}</div>` : ''}
     `;
 

@@ -106,13 +106,120 @@ app.post('/api/analyze/garment', async (req, res) => {
             },
             {
               type: 'text',
-              text: `Analyze this garment image. Extract the following details:
-- garmentType: The type of garment (shirt, suit, dress, jacket, trousers, blouse, coat, skirt, tie, sweater, etc.)
-- color: The primary color(s) of the garment
-- brand: The brand if visible on any label or tag, otherwise "Not visible"
+              text: `You are a garment analyst for a professional dry cleaning intake system. Analyze this image with precision and consistency.
 
-Respond with ONLY a JSON object in this exact format:
-{"garmentType": "...", "color": "...", "brand": "..."}`,
+═══════════════════════════════════════════════════════════════
+GARMENT TYPE CLASSIFICATION
+═══════════════════════════════════════════════════════════════
+
+Select EXACTLY ONE category from this list. Do not create new categories or combine categories.
+
+**SHIRTS & TOPS:**
+• Shirt Laundered — Casual button-up shirts (oxford cloth, chambray, denim shirts) that will be machine washed and pressed
+• Shirt Dry Clean — Dress shirts requiring dry cleaning due to delicate fabric, special finish, or construction
+• Dress Shirt — Formal button-up shirts, typically worn with suits (white, solid colors, subtle patterns)
+• Blouse — Women's tops (button-up or pullover), typically dressier than casual shirts
+• Golf Shirt — Polo shirts, collared knit shirts with short or long sleeves
+• Tee Shirt — Casual t-shirts (crew neck, v-neck, graphic tees)
+
+**SWEATERS & KNITS:**
+• Sweater — Pullover sweaters, v-neck sweaters, crew neck sweaters (standard weight)
+• Cardigan — Open-front sweaters with buttons, zippers, or no closure
+
+**PANTS & BOTTOMS:**
+• Pants — Dress pants, slacks, chinos, khakis (business casual or dressier)
+• Trousers — Formal suit trousers, part of a matching suit
+• Jeans — Denim pants (any style)
+• Shorts — Any type of shorts (dress shorts, cargo shorts, athletic shorts)
+
+**JACKETS & OUTERWEAR:**
+• Blazer — Structured tailored jacket, typically solid color, can be worn separately from a suit
+• Sport Coat — Less formal than blazer, often textured fabric or bold pattern (tweed, herringbone, plaid)
+• Jacket - Lightweight — Spring/fall jackets, windbreakers, bomber jackets, unlined jackets
+• Outer Coat - Long — Winter coats, overcoats, trench coats, parkas, peacoats (typically knee-length or longer)
+
+**VESTS:**
+• Suit Vest — Matching vest from a 3-piece suit, formal waistcoat
+• Vest — Standalone vests, sweater vests, puffer vests, utility vests
+
+**DRESSES & SKIRTS:**
+• Dress - Everyday — Casual dresses, sundresses, business dresses, cocktail dresses (knee-length or shorter)
+• Dress - Long — Formal gowns, evening dresses, maxi dresses, wedding dresses (typically floor-length)
+• Skirt - Everyday — Any type of skirt (A-line, pencil, pleated, mini, midi)
+
+**SPECIALTY ITEMS:**
+• Tie — Neckties, bow ties
+• Robe — Bathrobes, dressing gowns, kimono robes
+• Chef Jacket — White double-breasted kitchen uniform jacket
+• Apron — Kitchen aprons, work aprons, bib aprons
+• Belt — Leather or fabric belts
+• Tablecloth — Dining table linens
+• Socks — Any type of socks
+
+**CLASSIFICATION DECISION TREE:**
+1. If it's a shirt worn with a suit → "Dress Shirt"
+2. If it's a casual shirt that can be laundered → "Shirt Laundered"
+3. If it's a delicate shirt needing dry cleaning → "Shirt Dry Clean"
+4. If it's a women's dressy top → "Blouse"
+5. If it has a suit jacket + matching pants visible → the jacket is "Blazer" (or "Sport Coat" if textured/patterned), pants are "Trousers"
+6. If pants are denim → "Jeans"
+7. If pants are dressy but not part of a suit → "Pants"
+8. When uncertain between two similar categories, choose the MORE COMMON one
+
+═══════════════════════════════════════════════════════════════
+COLOR IDENTIFICATION
+═══════════════════════════════════════════════════════════════
+
+Identify the PRIMARY color using standard color names. Be specific but use common terms.
+
+**Standard colors to use:**
+White, Black, Navy, Gray, Charcoal, Brown, Tan, Khaki, Beige, Cream, Red, Burgundy, Blue, Light Blue, Royal Blue, Green, Olive, Forest Green, Yellow, Gold, Pink, Purple, Lavender, Orange, Rust
+
+**For patterns:**
+- Identify the dominant BACKGROUND color (e.g., "Navy" for navy pinstripe, "Blue" for blue plaid)
+- Do not describe the pattern itself, just the primary color
+
+**For multi-colored items:**
+- Choose the single most dominant color
+- Example: A blue shirt with white collar → "Blue"
+
+═══════════════════════════════════════════════════════════════
+BRAND IDENTIFICATION
+═══════════════════════════════════════════════════════════════
+
+ONLY report a brand if you can CLEARLY READ a visible brand name on:
+- A sewn-in label
+- An embroidered logo
+- A printed brand name on the fabric
+- A visible tag still attached to the garment
+
+**DO NOT:**
+- Guess based on style or appearance
+- Assume a brand from garment quality
+- Report a brand if the logo is unclear or partially visible
+- Make up brand names
+
+If you cannot clearly read a brand name, return null.
+
+═══════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════
+
+Return ONLY valid JSON with no additional text:
+
+{
+  "garmentType": "exact category name from the list above",
+  "color": "primary color using standard color names",
+  "brand": "Brand Name" or null
+}
+
+**Examples of correct responses:**
+
+{"garmentType": "Dress Shirt", "color": "White", "brand": "Brooks Brothers"}
+{"garmentType": "Jeans", "color": "Navy", "brand": null}
+{"garmentType": "Blazer", "color": "Charcoal", "brand": null}
+{"garmentType": "Blouse", "color": "Pink", "brand": "J.Crew"}
+{"garmentType": "Outer Coat - Long", "color": "Black", "brand": null}`,
             },
           ],
         },
