@@ -6,7 +6,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const anthropic = new Anthropic.default({
@@ -649,6 +649,122 @@ CRITICAL: You must select from the predefined categories ONLY. Do not create var
                    err.status === 429 ? 'Rate limited — slow down' :
                    err.message || 'Unknown error';
     res.status(500).json({ error: `Label analysis failed: ${detail}` });
+  }
+});
+
+// Orphan garment visual matching endpoint
+app.post('/api/orphan/match', async (req, res) => {
+  try {
+    const { orphanPhoto, candidates } = req.body;
+    if (!orphanPhoto || !candidates || candidates.length === 0) {
+      return res.status(400).json({ error: 'Missing orphan photo or candidates' });
+    }
+
+    const content = [
+      { type: 'text', text: 'ORPHAN GARMENT (identify this one):' },
+      {
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/jpeg', data: orphanPhoto },
+      },
+    ];
+
+    candidates.forEach((candidate, index) => {
+      content.push({
+        type: 'text',
+        text: `CANDIDATE ${index + 1} - ID: ${candidate.barcode}, Order: #${candidate.orderNumber}:`,
+      });
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/jpeg', data: candidate.photo },
+      });
+    });
+
+    content.push({
+      type: 'text',
+      text: `You are helping identify an orphaned garment that lost its barcode during cleaning.
+
+I showed you:
+1. A photo of the ORPHAN garment (the one we need to identify)
+2. Photos of ${candidates.length} CANDIDATE garments from recent check-ins
+
+Your job: Determine which candidate garment is the SAME physical item as the orphan.
+
+MATCHING CRITERIA (look for these distinguishing features):
+
+**Buttons:**
+- Number of buttons
+- Button material (plastic, metal, horn)
+- Button color and size
+- Button placement and spacing
+
+**Pockets:**
+- Number and placement
+- Style (patch, flap, welt, no pockets)
+- Pocket button details
+
+**Construction details:**
+- Stitching patterns (topstitching, contrast stitching)
+- Seam placement
+- Collar or lapel style
+- Cuff style
+
+**Fabric characteristics:**
+- Texture (smooth, textured, ribbed)
+- Pattern (solid, pinstripe, plaid, herringbone)
+- Sheen or finish
+
+**Wear patterns or unique marks:**
+- Fading or discoloration
+- Wear on cuffs or collar
+- Any unique marks, stains, or repairs visible in original photo
+
+**Brand labels or logos:**
+- Visible brand labels
+- Embroidered logos or monograms
+
+IMPORTANT NOTES:
+- The orphan was just cleaned, so it may look slightly different (cleaner, pressed)
+- Focus on STRUCTURAL features that don't change with cleaning (buttons, pockets, construction)
+- Ignore minor differences in how the garment is positioned in the photo
+- Color may appear slightly different due to lighting, but structure should match exactly
+
+Return ONLY valid JSON:
+
+{
+  "matches": [
+    {
+      "candidateId": "barcode from candidate label above",
+      "confidence": 0.0 to 1.0,
+      "matchingFeatures": ["list of specific features that match"],
+      "differences": ["any notable differences observed, if any"]
+    }
+  ],
+  "topMatchReasoning": "brief explanation of why the top match is most likely correct"
+}
+
+Rank all candidates by confidence. If no candidates are strong matches (all confidence < 0.6), the highest confidence should still be first but note the low confidence.`,
+    });
+
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      messages: [{ role: 'user', content }],
+    });
+
+    const text = message.content[0].text.trim();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      res.json(JSON.parse(jsonMatch[0]));
+    } else {
+      res.status(500).json({ error: 'Could not parse matching response' });
+    }
+  } catch (err) {
+    console.error('Orphan matching error:', err.status, err.message);
+    if (err.error) console.error('Details:', JSON.stringify(err.error));
+    const detail = err.status === 401 ? 'Invalid API key' :
+                   err.status === 429 ? 'Rate limited — slow down' :
+                   err.message || 'Unknown error';
+    res.status(500).json({ error: `Orphan matching failed: ${detail}` });
   }
 });
 

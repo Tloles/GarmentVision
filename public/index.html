@@ -10,6 +10,7 @@
   <header>
     <h1>GARMENT INTAKE</h1>
     <div class="header-controls">
+      <button id="btnFindOrphan" class="btn-orphan">Find Orphan</button>
       <label for="cameraSelect">Camera:</label>
       <select id="cameraSelect"></select>
     </div>
@@ -153,6 +154,93 @@
       </div>
     </section>
   </main>
+
+  <!-- Orphan Recovery Modal -->
+  <div id="orphanModal" class="orphan-modal hidden">
+    <div class="orphan-content">
+      <div class="orphan-header">
+        <h2>FIND ORPHAN GARMENT</h2>
+        <button id="btnCloseOrphan" class="orphan-close">&times;</button>
+      </div>
+
+      <!-- Step 1: Filters -->
+      <div id="orphanStep1" class="orphan-step">
+        <h3>Step 1: Filter by characteristics</h3>
+        <div class="orphan-form">
+          <div class="field-row">
+            <label for="orphanType">Type</label>
+            <select id="orphanType"><option value="">Any type</option></select>
+          </div>
+          <div class="field-row">
+            <label for="orphanColor">Color</label>
+            <select id="orphanColor"><option value="">Any color</option></select>
+          </div>
+          <div class="field-row">
+            <label for="orphanDateRange">Date Range</label>
+            <select id="orphanDateRange">
+              <option value="3">Last 3 days</option>
+              <option value="7" selected>Last 7 days</option>
+              <option value="14">Last 14 days</option>
+              <option value="30">Last 30 days</option>
+            </select>
+          </div>
+        </div>
+        <p id="orphanCandidateCount" class="orphan-info"></p>
+        <div class="orphan-actions">
+          <button id="btnOrphanNext1" class="btn btn-confirm">Next: Capture Photo</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Capture -->
+      <div id="orphanStep2" class="orphan-step hidden">
+        <h3>Step 2: Photograph the orphan garment</h3>
+        <div class="orphan-camera-wrap">
+          <video id="orphanVideo" autoplay playsinline></video>
+        </div>
+        <div id="orphanPreview" class="orphan-preview hidden">
+          <img id="orphanPreviewImg" alt="Captured orphan photo">
+        </div>
+        <canvas id="orphanCanvas" style="display:none;"></canvas>
+        <div class="orphan-actions">
+          <button id="btnOrphanCapture" class="btn btn-damage">Capture Photo</button>
+          <button id="btnOrphanRetake" class="btn btn-skip hidden">Retake</button>
+          <button id="btnOrphanSearch" class="btn btn-confirm hidden">Search for Matches</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Searching -->
+      <div id="orphanStep3" class="orphan-step hidden">
+        <div class="orphan-searching">
+          <span class="spinner large"></span>
+          <p id="orphanSearchText">Analyzing and comparing garments...</p>
+        </div>
+      </div>
+
+      <!-- Step 4: Results -->
+      <div id="orphanStep4" class="orphan-step hidden">
+        <h3>Match Results</h3>
+        <div id="orphanWarning" class="orphan-warning hidden"></div>
+        <div id="orphanResults" class="orphan-results"></div>
+        <div class="orphan-actions">
+          <button id="btnOrphanRetry" class="btn btn-skip">Try Different Filters</button>
+        </div>
+      </div>
+
+      <!-- Step 5: Confirmation -->
+      <div id="orphanStep5" class="orphan-step hidden">
+        <div class="orphan-confirmed">
+          <div class="confirmed-check">&#10003;</div>
+          <h3>Orphan Matched Successfully</h3>
+          <p id="orphanConfirmText"></p>
+          <p id="orphanBarcodeText" class="barcode-text"></p>
+          <p class="barcode-instruction">Print barcode and apply to garment</p>
+        </div>
+        <div class="orphan-actions">
+          <button id="btnOrphanDone" class="btn btn-confirm">Done — Return to Intake</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

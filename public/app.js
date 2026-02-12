@@ -5,6 +5,24 @@
 (function () {
   'use strict';
 
+  // ---- CONSTANTS ----
+
+  const GARMENT_TYPES = [
+    'Shirt Laundered', 'Shirt Dry Clean', 'Dress Shirt', 'Blouse', 'Golf Shirt', 'Tee Shirt',
+    'Sweater', 'Cardigan',
+    'Pants', 'Trousers', 'Jeans', 'Shorts',
+    'Blazer', 'Sport Coat', 'Jacket - Lightweight', 'Outer Coat - Long',
+    'Suit Vest', 'Vest',
+    'Dress - Everyday', 'Dress - Long', 'Skirt - Everyday',
+    'Tie', 'Robe', 'Chef Jacket', 'Apron', 'Belt', 'Tablecloth', 'Socks',
+  ];
+
+  const COLORS = [
+    'White', 'Black', 'Navy', 'Gray', 'Charcoal', 'Brown', 'Tan', 'Khaki', 'Beige', 'Cream',
+    'Red', 'Burgundy', 'Blue', 'Light Blue', 'Royal Blue', 'Green', 'Olive', 'Forest Green',
+    'Yellow', 'Gold', 'Pink', 'Purple', 'Lavender', 'Orange', 'Rust',
+  ];
+
   // ---- STATE ----
   const STATES = {
     GARMENT_SCAN: 1,
@@ -14,10 +32,12 @@
   };
 
   let currentState = STATES.GARMENT_SCAN;
-  let stabilityScore = 0; // 0-100 rolling confidence
+  let stabilityScore = 0;
   let isProcessing = false;
   let scanInterval = null;
   let processingTextInterval = null;
+  let lastGarmentPhoto = null;
+  let orderCounter = 0;
 
   // Current garment data
   let currentGarment = createEmptyGarment();
@@ -47,6 +67,35 @@
   const stabilityMeter = document.getElementById('stabilityMeter');
   const stabilityFill = document.getElementById('stabilityFill');
   const stabilityText = document.getElementById('stabilityText');
+
+  // Orphan modal refs
+  const btnFindOrphan = document.getElementById('btnFindOrphan');
+  const orphanModal = document.getElementById('orphanModal');
+  const btnCloseOrphan = document.getElementById('btnCloseOrphan');
+  const orphanStep1 = document.getElementById('orphanStep1');
+  const orphanStep2 = document.getElementById('orphanStep2');
+  const orphanStep3 = document.getElementById('orphanStep3');
+  const orphanStep4 = document.getElementById('orphanStep4');
+  const orphanStep5 = document.getElementById('orphanStep5');
+  const orphanTypeSelect = document.getElementById('orphanType');
+  const orphanColorSelect = document.getElementById('orphanColor');
+  const orphanDateRange = document.getElementById('orphanDateRange');
+  const orphanCandidateCount = document.getElementById('orphanCandidateCount');
+  const orphanVideo = document.getElementById('orphanVideo');
+  const orphanCanvas = document.getElementById('orphanCanvas');
+  const orphanPreview = document.getElementById('orphanPreview');
+  const orphanPreviewImg = document.getElementById('orphanPreviewImg');
+  const btnOrphanNext1 = document.getElementById('btnOrphanNext1');
+  const btnOrphanCapture = document.getElementById('btnOrphanCapture');
+  const btnOrphanRetake = document.getElementById('btnOrphanRetake');
+  const btnOrphanSearch = document.getElementById('btnOrphanSearch');
+  const orphanSearchText = document.getElementById('orphanSearchText');
+  const orphanWarning = document.getElementById('orphanWarning');
+  const orphanResults = document.getElementById('orphanResults');
+  const btnOrphanRetry = document.getElementById('btnOrphanRetry');
+  const orphanConfirmText = document.getElementById('orphanConfirmText');
+  const orphanBarcodeText = document.getElementById('orphanBarcodeText');
+  const btnOrphanDone = document.getElementById('btnOrphanDone');
 
   // Field refs
   const fields = {
@@ -127,7 +176,24 @@
       bleaching: '',
       damages: [],
       preferences: '',
+      intakePhoto: '',
+      orderNumber: 0,
+      barcode: '',
+      checkInDate: null,
     };
+  }
+
+  function generateBarcode() {
+    const now = new Date();
+    const datePart = now.getFullYear().toString() +
+      String(now.getMonth() + 1).padStart(2, '0') +
+      String(now.getDate()).padStart(2, '0');
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let rand = '';
+    for (let i = 0; i < 4; i++) {
+      rand += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return 'BC-' + datePart + '-' + rand;
   }
 
   function captureFrame() {
@@ -193,13 +259,18 @@
     });
   }
 
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
   // ---- STABILITY METER ----
 
   function updateStabilityMeter() {
     const pct = Math.min(100, Math.max(0, stabilityScore));
     stabilityFill.style.width = pct + '%';
 
-    // Color coding
     stabilityFill.classList.remove('low', 'medium', 'high');
     if (pct >= 70) {
       stabilityFill.classList.add('high');
@@ -209,7 +280,6 @@
       stabilityFill.classList.add('low');
     }
 
-    // Text label
     if (pct >= 85) {
       stabilityText.textContent = 'READY TO CAPTURE';
     } else if (pct >= 50) {
@@ -263,7 +333,6 @@
     hideStabilityMeter();
     stopProgressiveText();
 
-    // Update state dots
     stateDots.forEach((dot) => {
       const s = parseInt(dot.dataset.state);
       dot.classList.remove('active', 'done');
@@ -271,11 +340,9 @@
       if (s === state) dot.classList.add('active');
     });
 
-    // Hide all contextual controls
     damageControls.classList.add('hidden');
     completeControls.classList.add('hidden');
 
-    // Show back button on states 2, 3, 4 (not on state 1)
     if (state > STATES.GARMENT_SCAN) {
       btnBack.classList.remove('hidden');
     } else {
@@ -363,7 +430,6 @@
       detectionIndicator.classList.remove('error');
 
       if (result.detected) {
-        // Map confidence to stability increment
         const conf = (result.confidence || '').toLowerCase();
         let increment = 30;
         if (conf === 'high') increment = 45;
@@ -373,19 +439,16 @@
         stabilityScore = Math.min(100, stabilityScore + increment);
         updateStabilityMeter();
 
-        // Progressive bracket states based on stability
         if (stabilityScore >= 80) {
           setBracketState('locking');
         } else {
           setBracketState('detecting');
         }
 
-        // Audio tick on first detection
         if (stabilityScore <= increment) {
           playDetectionTick();
         }
 
-        // Show progress text
         const pct = Math.round(stabilityScore);
         if (pct >= 85) {
           setDetectionText('Locking on...');
@@ -393,14 +456,12 @@
           setDetectionText('Stability: ' + pct + '%');
         }
 
-        // Trigger capture at 100%
         if (stabilityScore >= 100) {
           setDetectionText('Capturing...');
           playCaptureSound();
           await performCapture(image);
         }
       } else {
-        // Decay stability on miss
         stabilityScore = Math.max(0, stabilityScore - 25);
         updateStabilityMeter();
 
@@ -430,6 +491,7 @@
     hideStabilityMeter();
 
     if (currentState === STATES.GARMENT_SCAN) {
+      lastGarmentPhoto = image;
       await analyzeGarment(image);
     } else if (currentState === STATES.CARE_LABEL) {
       await analyzeLabel(image);
@@ -587,6 +649,12 @@
     currentGarment.bleaching = fields.bleaching.value;
     currentGarment.preferences = fields.prefs.value;
 
+    orderCounter++;
+    currentGarment.intakePhoto = lastGarmentPhoto || '';
+    currentGarment.orderNumber = orderCounter;
+    currentGarment.barcode = generateBarcode();
+    currentGarment.checkInDate = new Date();
+
     order.push({ ...currentGarment });
     renderOrderCard(currentGarment, order.length);
     updateOrderCount();
@@ -614,7 +682,7 @@
 
     card.innerHTML = `
       <div class="card-header">
-        <span class="card-number">#${index}</span>
+        <span class="card-number">#${garment.orderNumber} — ${escapeHtml(garment.barcode)}</span>
       </div>
       <div class="card-title">${escapeHtml(garment.color)} ${escapeHtml(garment.garmentType)}</div>
       ${garment.brand ? `<div class="card-detail">${escapeHtml(garment.brand)}</div>` : ''}
@@ -628,17 +696,244 @@
     orderCount.textContent = `(${order.length} item${order.length !== 1 ? 's' : ''})`;
   }
 
-  function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  }
-
   function resetForNewGarment() {
     currentGarment = createEmptyGarment();
+    lastGarmentPhoto = null;
     clearAllFields();
     resetGroups();
     transitionTo(STATES.GARMENT_SCAN);
+  }
+
+  // ---- ORPHAN RECOVERY ----
+
+  let orphanPhoto = null;
+  let orphanCandidates = [];
+
+  function populateOrphanDropdowns() {
+    GARMENT_TYPES.forEach((t) => {
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t;
+      orphanTypeSelect.appendChild(opt);
+    });
+
+    COLORS.forEach((c) => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      orphanColorSelect.appendChild(opt);
+    });
+  }
+
+  function filterCandidates() {
+    const typeFilter = orphanTypeSelect.value;
+    const colorFilter = orphanColorSelect.value;
+    const days = parseInt(orphanDateRange.value);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+
+    return order.filter((g) => {
+      if (!g.intakePhoto) return false;
+      if (typeFilter && g.garmentType !== typeFilter) return false;
+      if (colorFilter && g.color !== colorFilter) return false;
+      if (g.checkInDate && g.checkInDate < cutoff) return false;
+      return true;
+    }).slice(0, 10);
+  }
+
+  function updateCandidateCount() {
+    const candidates = filterCandidates();
+    if (candidates.length === 0) {
+      orphanCandidateCount.textContent = 'No garments match these filters. Try widening your search.';
+      btnOrphanNext1.disabled = true;
+    } else {
+      orphanCandidateCount.textContent = candidates.length + ' candidate garment' + (candidates.length !== 1 ? 's' : '') + ' found.';
+      btnOrphanNext1.disabled = false;
+    }
+  }
+
+  function showOrphanStep(step) {
+    [orphanStep1, orphanStep2, orphanStep3, orphanStep4, orphanStep5].forEach((s) => {
+      s.classList.add('hidden');
+    });
+    step.classList.remove('hidden');
+
+    if (step === orphanStep2) {
+      // Share camera stream with orphan video
+      if (cameraFeed.srcObject) {
+        orphanVideo.srcObject = cameraFeed.srcObject;
+        orphanVideo.play().catch(() => {});
+      }
+      // Reset capture state
+      orphanPreview.classList.add('hidden');
+      btnOrphanCapture.classList.remove('hidden');
+      btnOrphanRetake.classList.add('hidden');
+      btnOrphanSearch.classList.add('hidden');
+      orphanPhoto = null;
+    }
+  }
+
+  function openOrphanModal() {
+    stopAutoScan();
+    orphanModal.classList.remove('hidden');
+    showOrphanStep(orphanStep1);
+    updateCandidateCount();
+  }
+
+  function closeOrphanModal() {
+    orphanModal.classList.add('hidden');
+    orphanVideo.srcObject = null;
+    orphanPhoto = null;
+    orphanCandidates = [];
+    // Resume auto-scan if in a scan state
+    if (currentState === STATES.GARMENT_SCAN || currentState === STATES.CARE_LABEL) {
+      startAutoScan();
+    }
+  }
+
+  function captureOrphanFrame() {
+    const ctx = orphanCanvas.getContext('2d');
+    orphanCanvas.width = orphanVideo.videoWidth;
+    orphanCanvas.height = orphanVideo.videoHeight;
+    ctx.drawImage(orphanVideo, 0, 0);
+    return orphanCanvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+  }
+
+  function orphanDoCapture() {
+    orphanPhoto = captureOrphanFrame();
+    orphanPreviewImg.src = 'data:image/jpeg;base64,' + orphanPhoto;
+    orphanPreview.classList.remove('hidden');
+    btnOrphanCapture.classList.add('hidden');
+    btnOrphanRetake.classList.remove('hidden');
+    btnOrphanSearch.classList.remove('hidden');
+  }
+
+  function orphanRetake() {
+    orphanPhoto = null;
+    orphanPreview.classList.add('hidden');
+    btnOrphanCapture.classList.remove('hidden');
+    btnOrphanRetake.classList.add('hidden');
+    btnOrphanSearch.classList.add('hidden');
+  }
+
+  async function orphanSearch() {
+    orphanCandidates = filterCandidates();
+    if (!orphanPhoto || orphanCandidates.length === 0) return;
+
+    showOrphanStep(orphanStep3);
+    orphanSearchText.textContent = 'Analyzing and comparing to ' + orphanCandidates.length + ' recent garment' + (orphanCandidates.length !== 1 ? 's' : '') + '...';
+
+    try {
+      const candidateData = orphanCandidates.map((g) => ({
+        barcode: g.barcode,
+        orderNumber: g.orderNumber,
+        photo: g.intakePhoto,
+      }));
+
+      const resp = await fetch('/api/orphan/match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orphanPhoto, candidates: candidateData }),
+      });
+
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Matching failed');
+
+      displayOrphanResults(data);
+    } catch (err) {
+      console.error('Orphan matching error:', err);
+      showOrphanStep(orphanStep4);
+      orphanWarning.classList.remove('hidden');
+      orphanWarning.textContent = 'Error: ' + (err.message || 'Matching failed. Try again.');
+      orphanResults.innerHTML = '';
+    }
+  }
+
+  function displayOrphanResults(data) {
+    showOrphanStep(orphanStep4);
+    orphanResults.innerHTML = '';
+    orphanWarning.classList.add('hidden');
+
+    const matches = (data.matches || []).sort((a, b) => b.confidence - a.confidence).slice(0, 3);
+
+    if (matches.length === 0) {
+      orphanWarning.classList.remove('hidden');
+      orphanWarning.textContent = 'No matches found. Try widening the date range or changing filters.';
+      return;
+    }
+
+    const topConfidence = matches[0].confidence;
+    const highMatches = matches.filter((m) => m.confidence >= 0.85);
+
+    if (topConfidence < 0.6) {
+      orphanWarning.classList.remove('hidden');
+      orphanWarning.textContent = 'Low confidence — No strong matches found. Verify carefully or try different filters.';
+    } else if (highMatches.length >= 2) {
+      orphanWarning.classList.remove('hidden');
+      orphanWarning.textContent = 'Multiple possible matches found — verify carefully before selecting.';
+    }
+
+    matches.forEach((match) => {
+      const candidate = orphanCandidates.find((g) => g.barcode === match.candidateId);
+      if (!candidate) return;
+
+      const confPct = Math.round(match.confidence * 100);
+      const confClass = confPct >= 80 ? 'high' : confPct >= 60 ? 'medium' : 'low';
+      const dateStr = candidate.checkInDate ? candidate.checkInDate.toLocaleDateString() : 'N/A';
+
+      const featuresHtml = (match.matchingFeatures || [])
+        .map((f) => '<span>' + escapeHtml(f) + '</span>')
+        .join('');
+
+      const card = document.createElement('div');
+      card.className = 'match-card';
+      card.innerHTML = `
+        <div class="match-card-header">
+          <div class="match-confidence ${confClass}">${confPct}% MATCH</div>
+          <div class="match-meta">
+            Order #${candidate.orderNumber}<br>
+            ${escapeHtml(candidate.color)} ${escapeHtml(candidate.garmentType)}<br>
+            Checked in: ${dateStr}
+          </div>
+        </div>
+        <div class="match-photos">
+          <div>
+            <div class="match-photo-label">Orphan</div>
+            <img src="data:image/jpeg;base64,${orphanPhoto}" alt="Orphan garment">
+          </div>
+          <div>
+            <div class="match-photo-label">Intake Photo</div>
+            <img src="data:image/jpeg;base64,${candidate.intakePhoto}" alt="Candidate intake">
+          </div>
+        </div>
+        ${featuresHtml ? '<div class="match-features">' + featuresHtml + '</div>' : ''}
+        <button class="btn-select-match" data-barcode="${escapeHtml(candidate.barcode)}">SELECT THIS MATCH</button>
+      `;
+      orphanResults.appendChild(card);
+    });
+
+    // Wire up select buttons
+    orphanResults.querySelectorAll('.btn-select-match').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        confirmOrphanMatch(btn.dataset.barcode);
+      });
+    });
+  }
+
+  function confirmOrphanMatch(barcode) {
+    const candidate = order.find((g) => g.barcode === barcode);
+    if (!candidate) return;
+
+    const newBarcode = generateBarcode();
+    const now = new Date().toLocaleDateString();
+
+    // Update the order record
+    candidate.barcode = newBarcode;
+    candidate.orphanRecovery = 'Barcode replaced during orphan recovery on ' + now;
+
+    showOrphanStep(orphanStep5);
+    orphanConfirmText.textContent = 'Orphan matched to Order #' + candidate.orderNumber + ' — ' + candidate.color + ' ' + candidate.garmentType;
+    orphanBarcodeText.textContent = newBarcode;
   }
 
   // ---- CAMERA SETUP ----
@@ -735,10 +1030,36 @@
     resetForNewGarment();
   });
 
+  // Orphan event listeners
+  btnFindOrphan.addEventListener('click', openOrphanModal);
+  btnCloseOrphan.addEventListener('click', closeOrphanModal);
+
+  orphanTypeSelect.addEventListener('change', updateCandidateCount);
+  orphanColorSelect.addEventListener('change', updateCandidateCount);
+  orphanDateRange.addEventListener('change', updateCandidateCount);
+
+  btnOrphanNext1.addEventListener('click', () => {
+    const candidates = filterCandidates();
+    if (candidates.length === 0) return;
+    showOrphanStep(orphanStep2);
+  });
+
+  btnOrphanCapture.addEventListener('click', orphanDoCapture);
+  btnOrphanRetake.addEventListener('click', orphanRetake);
+  btnOrphanSearch.addEventListener('click', orphanSearch);
+
+  btnOrphanRetry.addEventListener('click', () => {
+    showOrphanStep(orphanStep1);
+    updateCandidateCount();
+  });
+
+  btnOrphanDone.addEventListener('click', closeOrphanModal);
+
   // ---- INIT ----
 
   async function init() {
     statePrompt.textContent = 'Initializing camera...';
+    populateOrphanDropdowns();
 
     const cameras = await enumerateCameras();
     if (cameras.length === 0) {
