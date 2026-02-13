@@ -1,117 +1,118 @@
 // ============================================
-// GARMENT INTAKE — Application Logic
+// DRY CLEANING INTAKE — Screen-Based Workflow
 // ============================================
 
 (function () {
   'use strict';
 
-  // ---- CONSTANTS ----
+  // ---- WORKFLOW STATE ----
+  let currentOrder = null;   // { id, orderNumber, customerBarcode, customerName, items: [] }
+  let currentGarmentBarcode = null;
+  let isRescan = false;      // true when re-scanning an existing garment
+  let cameraInitialized = false;
 
-  const GARMENT_TYPES = [
-    'Shirt Laundered', 'Shirt Dry Clean', 'Dress Shirt', 'Blouse', 'Golf Shirt', 'Tee Shirt',
-    'Sweater', 'Cardigan',
-    'Pants', 'Trousers', 'Jeans', 'Shorts',
-    'Blazer', 'Sport Coat', 'Jacket - Lightweight', 'Outer Coat - Long',
-    'Suit Vest', 'Vest',
-    'Dress - Everyday', 'Dress - Long', 'Skirt - Everyday',
-    'Tie', 'Robe', 'Chef Jacket', 'Apron', 'Belt', 'Tablecloth', 'Socks',
-  ];
-
-  const COLORS = [
-    'White', 'Black', 'Navy', 'Gray', 'Charcoal', 'Brown', 'Tan', 'Khaki', 'Beige', 'Cream',
-    'Red', 'Burgundy', 'Blue', 'Light Blue', 'Royal Blue', 'Green', 'Olive', 'Forest Green',
-    'Yellow', 'Gold', 'Pink', 'Purple', 'Lavender', 'Orange', 'Rust',
-  ];
-
-  // ---- STATE ----
-  const STATES = {
-    GARMENT_SCAN: 1,
-    DAMAGE_CAPTURE: 2,
-    CARE_LABEL: 3,
-    COMPLETE: 4,
-  };
-
-  let currentState = STATES.GARMENT_SCAN;
+  // ---- CAMERA CAPTURE STATE ----
+  const CAPTURE_STATES = { GARMENT_SCAN: 1, DAMAGE_CAPTURE: 2, CARE_LABEL: 3, CAPTURE_COMPLETE: 4 };
+  let captureState = CAPTURE_STATES.GARMENT_SCAN;
   let consecutiveDetections = 0;
-  let stabilityWindow = 2; // Number of consecutive 'ready' checks needed (default: 2 = 1s at 500ms interval)
+  let stabilityWindow = 2;
   let isProcessing = false;
   let scanInterval = null;
   let processingTextInterval = null;
   let lastGarmentPhoto = null;
   let lastLabelPhoto = null;
-  let orderCounter = 0;
-  let existingDbGarment = null; // Garment loaded from Supabase
-
-  // Current garment data
   let currentGarment = createEmptyGarment();
 
-  // Order list
-  let order = [];
+  // ---- SCREENS ----
+  const screens = {
+    start: document.getElementById('screenStart'),
+    customer: document.getElementById('screenCustomer'),
+    newCustomer: document.getElementById('screenNewCustomer'),
+    garmentEntry: document.getElementById('screenGarmentEntry'),
+    existingGarment: document.getElementById('screenExistingGarment'),
+    camera: document.getElementById('screenCamera'),
+    review: document.getElementById('screenReview'),
+  };
+
+  function showScreen(name) {
+    Object.values(screens).forEach(function (s) { s.classList.remove('active'); });
+    screens[name].classList.add('active');
+    // Auto-focus barcode inputs
+    if (name === 'customer') {
+      setTimeout(function () { custBarcodeInput.focus(); }, 100);
+    } else if (name === 'garmentEntry') {
+      setTimeout(function () { garmentBarcodeInput.focus(); }, 100);
+    } else if (name === 'newCustomer') {
+      setTimeout(function () { custNameInput.focus(); }, 100);
+    }
+  }
 
   // ---- DOM REFS ----
-  const cameraFeed = document.getElementById('cameraFeed');
-  const captureCanvas = document.getElementById('captureCanvas');
-  const cameraSelect = document.getElementById('cameraSelect');
-  const statePrompt = document.getElementById('statePrompt');
-  const detectionIndicator = document.getElementById('detectionIndicator');
-  const flashOverlay = document.getElementById('flashOverlay');
-  const damageControls = document.getElementById('damageControls');
-  const completeControls = document.getElementById('completeControls');
-  const btnCaptureDamage = document.getElementById('btnCaptureDamage');
-  const btnSkipDamage = document.getElementById('btnSkipDamage');
-  const btnAddToOrder = document.getElementById('btnAddToOrder');
-  const btnNewGarment = document.getElementById('btnNewGarment');
-  const btnBack = document.getElementById('btnBack');
-  const damageList = document.getElementById('damageList');
-  const orderList = document.getElementById('orderList');
-  const orderCount = document.getElementById('orderCount');
-  const orderPlaceholder = document.getElementById('orderPlaceholder');
-  const brackets = document.querySelectorAll('.bracket');
-  const stabilityMeter = document.getElementById('stabilityMeter');
-  const stabilityFill = document.getElementById('stabilityFill');
-  const stabilityText = document.getElementById('stabilityText');
-  const stabilitySelect = document.getElementById('stabilitySelect');
+  // Screen 1
+  var btnStartOrder = document.getElementById('btnStartOrder');
+  var btnOrphan = document.getElementById('btnOrphan');
 
-  // Barcode / DB refs
-  const barcodeInput = document.getElementById('barcodeInput');
-  const btnBarcodeLookup = document.getElementById('btnBarcodeLookup');
-  const existingBanner = document.getElementById('existingBanner');
-  const existingLastDate = document.getElementById('existingLastDate');
-  const existingPhotos = document.getElementById('existingPhotos');
-  const btnUseExisting = document.getElementById('btnUseExisting');
-  const btnRescan = document.getElementById('btnRescan');
+  // Screen 2
+  var custBarcodeInput = document.getElementById('custBarcodeInput');
+  var btnCustLookup = document.getElementById('btnCustLookup');
+  var btnNewCustomer = document.getElementById('btnNewCustomer');
+  var custError = document.getElementById('custError');
+  var btnCustBack = document.getElementById('btnCustBack');
 
-  // Orphan modal refs
-  const btnFindOrphan = document.getElementById('btnFindOrphan');
-  const orphanModal = document.getElementById('orphanModal');
-  const btnCloseOrphan = document.getElementById('btnCloseOrphan');
-  const orphanStep1 = document.getElementById('orphanStep1');
-  const orphanStep2 = document.getElementById('orphanStep2');
-  const orphanStep3 = document.getElementById('orphanStep3');
-  const orphanStep4 = document.getElementById('orphanStep4');
-  const orphanStep5 = document.getElementById('orphanStep5');
-  const orphanTypeSelect = document.getElementById('orphanType');
-  const orphanColorSelect = document.getElementById('orphanColor');
-  const orphanDateRange = document.getElementById('orphanDateRange');
-  const orphanCandidateCount = document.getElementById('orphanCandidateCount');
-  const orphanVideo = document.getElementById('orphanVideo');
-  const orphanCanvas = document.getElementById('orphanCanvas');
-  const orphanPreview = document.getElementById('orphanPreview');
-  const orphanPreviewImg = document.getElementById('orphanPreviewImg');
-  const btnOrphanNext1 = document.getElementById('btnOrphanNext1');
-  const btnOrphanCapture = document.getElementById('btnOrphanCapture');
-  const btnOrphanRetake = document.getElementById('btnOrphanRetake');
-  const btnOrphanSearch = document.getElementById('btnOrphanSearch');
-  const orphanSearchText = document.getElementById('orphanSearchText');
-  const orphanWarning = document.getElementById('orphanWarning');
-  const orphanResults = document.getElementById('orphanResults');
-  const btnOrphanRetry = document.getElementById('btnOrphanRetry');
-  const orphanConfirmText = document.getElementById('orphanConfirmText');
-  const orphanBarcodeText = document.getElementById('orphanBarcodeText');
-  const btnOrphanDone = document.getElementById('btnOrphanDone');
+  // Screen 2b
+  var newCustBarcode = document.getElementById('newCustBarcode');
+  var custNameInput = document.getElementById('custName');
+  var custPhoneInput = document.getElementById('custPhone');
+  var custEmailInput = document.getElementById('custEmail');
+  var btnCreateCustomer = document.getElementById('btnCreateCustomer');
+  var newCustError = document.getElementById('newCustError');
+  var btnNewCustBack = document.getElementById('btnNewCustBack');
 
-  // Field refs
-  const fields = {
+  // Screen 3
+  var orderNumberEl = document.getElementById('orderNumber');
+  var orderCustomerEl = document.getElementById('orderCustomer');
+  var orderItemCountEl = document.getElementById('orderItemCount');
+  var garmentBarcodeInput = document.getElementById('garmentBarcodeInput');
+  var btnScanGarment = document.getElementById('btnScanGarment');
+  var btnNewGarment = document.getElementById('btnNewGarment');
+  var garmentError = document.getElementById('garmentError');
+  var orderItemsList = document.getElementById('orderItemsList');
+  var btnFinishOrder = document.getElementById('btnFinishOrder');
+  var btnGarmentBack = document.getElementById('btnGarmentBack');
+
+  // Screen 3b
+  var existBarcode = document.getElementById('existBarcode');
+  var existDetails = document.getElementById('existDetails');
+  var existPhotos = document.getElementById('existPhotos');
+  var btnAddExisting = document.getElementById('btnAddExisting');
+  var btnRescanExisting = document.getElementById('btnRescanExisting');
+  var btnExistBack = document.getElementById('btnExistBack');
+
+  // Screen 4 (camera)
+  var cameraFeed = document.getElementById('cameraFeed');
+  var captureCanvas = document.getElementById('captureCanvas');
+  var cameraSelect = document.getElementById('cameraSelect');
+  var stabilitySelect = document.getElementById('stabilitySelect');
+  var statePrompt = document.getElementById('statePrompt');
+  var detectionIndicator = document.getElementById('detectionIndicator');
+  var flashOverlay = document.getElementById('flashOverlay');
+  var damageControls = document.getElementById('damageControls');
+  var btnCaptureDamage = document.getElementById('btnCaptureDamage');
+  var btnSkipDamage = document.getElementById('btnSkipDamage');
+  var captureConfirm = document.getElementById('captureConfirm');
+  var btnConfirmAdd = document.getElementById('btnConfirmAdd');
+  var btnCameraBack = document.getElementById('btnCameraBack');
+  var brackets = document.querySelectorAll('.bracket');
+  var stabilityMeter = document.getElementById('stabilityMeter');
+  var stabilityFill = document.getElementById('stabilityFill');
+  var stabilityText = document.getElementById('stabilityText');
+  var damageList = document.getElementById('damageList');
+  var stateDots = document.querySelectorAll('.state-dot');
+  var cameraOrderNum = document.getElementById('cameraOrderNum');
+  var cameraGarmentBarcode = document.getElementById('cameraGarmentBarcode');
+
+  // Fields
+  var fields = {
     type: document.getElementById('fieldType'),
     color: document.getElementById('fieldColor'),
     brand: document.getElementById('fieldBrand'),
@@ -121,118 +122,40 @@
     drying: document.getElementById('fieldDrying'),
     ironing: document.getElementById('fieldIroning'),
     bleaching: document.getElementById('fieldBleaching'),
-    prefs: document.getElementById('fieldPrefs'),
   };
 
-  // Field groups
-  const groups = {
+  var groups = {
     garment: document.getElementById('groupGarment'),
     damage: document.getElementById('groupDamage'),
     care: document.getElementById('groupCare'),
-    prefs: document.getElementById('groupPrefs'),
   };
 
-  // State dots
-  const stateDots = document.querySelectorAll('.state-dot');
-
-  // ---- AUDIO FEEDBACK ----
-
-  let audioCtx = null;
-
-  function getAudioContext() {
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    return audioCtx;
-  }
-
-  function playTone(freq, duration, volume, startDelay) {
-    try {
-      const ctx = getAudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = freq;
-      osc.type = 'sine';
-      const start = ctx.currentTime + (startDelay || 0);
-      gain.gain.setValueAtTime(volume, start);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
-      osc.start(start);
-      osc.stop(start + duration);
-    } catch (e) {
-      // Audio not available, silently ignore
-    }
-  }
-
-  function playDetectionTick() {
-    playTone(600, 0.06, 0.06, 0);
-  }
-
-  function playCaptureSound() {
-    playTone(880, 0.12, 0.1, 0);
-    playTone(1100, 0.15, 0.12, 0.1);
-  }
+  // Screen 5
+  var reviewOrderInfo = document.getElementById('reviewOrderInfo');
+  var reviewItemsList = document.getElementById('reviewItemsList');
+  var btnCompleteOrder = document.getElementById('btnCompleteOrder');
+  var btnSendSmrt = document.getElementById('btnSendSmrt');
+  var btnReviewBack = document.getElementById('btnReviewBack');
+  var orderCompleteToast = document.getElementById('orderCompleteToast');
 
   // ---- HELPERS ----
+  function escapeHtml(str) {
+    if (!str) return '';
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function showError(el, msg) {
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+  function hideError(el) {
+    el.classList.add('hidden');
+  }
 
   function createEmptyGarment() {
-    return {
-      garmentType: '',
-      color: '',
-      brand: '',
-      fiberContent: '',
-      dryClean: '',
-      washing: '',
-      drying: '',
-      ironing: '',
-      bleaching: '',
-      damages: [],
-      preferences: '',
-      intakePhoto: '',
-      orderNumber: 0,
-      barcode: '',
-      checkInDate: null,
-    };
-  }
-
-  function generateBarcode() {
-    const now = new Date();
-    const datePart = now.getFullYear().toString() +
-      String(now.getMonth() + 1).padStart(2, '0') +
-      String(now.getDate()).padStart(2, '0');
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let rand = '';
-    for (let i = 0; i < 4; i++) {
-      rand += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return 'BC-' + datePart + '-' + rand;
-  }
-
-  function captureFrame() {
-    const ctx = captureCanvas.getContext('2d');
-    captureCanvas.width = cameraFeed.videoWidth;
-    captureCanvas.height = cameraFeed.videoHeight;
-    ctx.drawImage(cameraFeed, 0, 0);
-    const dataUrl = captureCanvas.toDataURL('image/jpeg', 0.8);
-    return dataUrl.split(',')[1];
-  }
-
-  function triggerFlash() {
-    flashOverlay.classList.add('flash');
-    setTimeout(() => flashOverlay.classList.remove('flash'), 200);
-  }
-
-  function setBracketState(state) {
-    brackets.forEach((b) => {
-      b.classList.remove('detecting', 'locking', 'captured');
-      if (state) b.classList.add(state);
-    });
-  }
-
-  function setDetectionText(text) {
-    detectionIndicator.textContent = text;
-    detectionIndicator.classList.toggle('visible', !!text);
+    return { garmentType: '', color: '', brand: '', fiberContent: '', dryClean: '', washing: '', drying: '', ironing: '', bleaching: '', damages: [] };
   }
 
   function setFieldValue(field, value) {
@@ -243,100 +166,442 @@
   }
 
   function clearAllFields() {
-    Object.values(fields).forEach((f) => {
-      f.value = '';
-      f.classList.remove('populated');
-    });
+    Object.values(fields).forEach(function (f) { f.value = ''; f.classList.remove('populated'); });
     damageList.innerHTML = '<p class="placeholder-text">No damage recorded</p>';
   }
 
-  function highlightGroup(groupName) {
-    Object.values(groups).forEach((g) => {
-      g.classList.remove('highlight');
-    });
-    if (groupName && groups[groupName]) {
-      groups[groupName].classList.add('highlight');
-    }
+  function highlightGroup(name) {
+    Object.values(groups).forEach(function (g) { g.classList.remove('highlight'); });
+    if (name && groups[name]) groups[name].classList.add('highlight');
   }
-
-  function markGroupComplete(groupName) {
-    if (groups[groupName]) {
-      groups[groupName].classList.remove('highlight');
-      groups[groupName].classList.add('complete');
-    }
+  function markGroupComplete(name) {
+    if (groups[name]) { groups[name].classList.remove('highlight'); groups[name].classList.add('complete'); }
   }
-
   function resetGroups() {
-    Object.values(groups).forEach((g) => {
-      g.classList.remove('highlight', 'complete');
+    Object.values(groups).forEach(function (g) { g.classList.remove('highlight', 'complete'); });
+  }
+
+  // ---- AUDIO ----
+  var audioCtx = null;
+  function getAudioContext() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); return audioCtx; }
+  function playTone(freq, dur, vol, delay) {
+    try { var ctx = getAudioContext(); var o = ctx.createOscillator(); var g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.frequency.value = freq; o.type = 'sine'; var s = ctx.currentTime + (delay || 0); g.gain.setValueAtTime(vol, s); g.gain.exponentialRampToValueAtTime(0.001, s + dur); o.start(s); o.stop(s + dur); } catch (e) {}
+  }
+  function playDetectionTick() { playTone(600, 0.06, 0.06, 0); }
+  function playCaptureSound() { playTone(880, 0.12, 0.1, 0); playTone(1100, 0.15, 0.12, 0.1); }
+
+  // ========================================
+  // SCREEN 1: START
+  // ========================================
+
+  btnStartOrder.addEventListener('click', function () {
+    showScreen('customer');
+    custBarcodeInput.value = '';
+    hideError(custError);
+  });
+
+  btnOrphan.addEventListener('click', function () {
+    alert('Coming soon — Orphan garment recovery will be available in a future update.');
+  });
+
+  // ========================================
+  // SCREEN 2: CUSTOMER LOOKUP
+  // ========================================
+
+  function doCustomerLookup() {
+    var barcode = custBarcodeInput.value.trim();
+    if (!barcode) return;
+    hideError(custError);
+    btnCustLookup.disabled = true;
+    btnCustLookup.textContent = 'LOOKING UP...';
+
+    fetch('/api/customer/' + encodeURIComponent(barcode))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.found && data.customer) {
+          createOrderForCustomer(data.customer.customer_barcode, data.customer.name);
+        } else if (data.error && data.error.includes('not configured')) {
+          showError(custError, 'Database not configured. Add SUPABASE_URL and SUPABASE_SERVICE_KEY to .env');
+        } else {
+          showError(custError, 'Customer barcode not found. Click "New Customer" to register.');
+        }
+      })
+      .catch(function (err) {
+        showError(custError, 'Lookup failed: ' + err.message);
+      })
+      .finally(function () {
+        btnCustLookup.disabled = false;
+        btnCustLookup.textContent = 'SCAN CUSTOMER BAG';
+      });
+  }
+
+  custBarcodeInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); doCustomerLookup(); }
+  });
+  btnCustLookup.addEventListener('click', doCustomerLookup);
+
+  btnNewCustomer.addEventListener('click', function () {
+    showScreen('newCustomer');
+    hideError(newCustError);
+    custNameInput.value = '';
+    custPhoneInput.value = '';
+    custEmailInput.value = '';
+    // Fetch next barcode
+    newCustBarcode.textContent = 'Generating...';
+    fetch('/api/customer/next-barcode')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        newCustBarcode.textContent = data.barcode || 'CUST-00001';
+      })
+      .catch(function () {
+        newCustBarcode.textContent = 'CUST-00001';
+      });
+  });
+
+  btnCustBack.addEventListener('click', function () { showScreen('start'); });
+
+  // ========================================
+  // SCREEN 2b: NEW CUSTOMER
+  // ========================================
+
+  btnCreateCustomer.addEventListener('click', function () {
+    var name = custNameInput.value.trim();
+    if (!name) { showError(newCustError, 'Customer name is required.'); return; }
+    hideError(newCustError);
+    var barcode = newCustBarcode.textContent;
+    btnCreateCustomer.disabled = true;
+    btnCreateCustomer.textContent = 'CREATING...';
+
+    fetch('/api/customer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer_barcode: barcode,
+        name: name,
+        phone: custPhoneInput.value.trim() || null,
+        email: custEmailInput.value.trim() || null,
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.success) {
+          createOrderForCustomer(barcode, name);
+        } else {
+          showError(newCustError, data.error || 'Failed to create customer');
+        }
+      })
+      .catch(function (err) {
+        showError(newCustError, 'Error: ' + err.message);
+      })
+      .finally(function () {
+        btnCreateCustomer.disabled = false;
+        btnCreateCustomer.textContent = 'CREATE CUSTOMER';
+      });
+  });
+
+  btnNewCustBack.addEventListener('click', function () { showScreen('customer'); });
+
+  // ========================================
+  // CREATE ORDER & GO TO GARMENT ENTRY
+  // ========================================
+
+  function createOrderForCustomer(customerBarcode, customerName) {
+    fetch('/api/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customer_barcode: customerBarcode }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.success && data.order) {
+          currentOrder = {
+            id: data.order.id,
+            orderNumber: data.order.order_number,
+            customerBarcode: customerBarcode,
+            customerName: customerName,
+            items: [],
+          };
+          enterGarmentScreen();
+        } else {
+          showError(custError, data.error || 'Failed to create order');
+        }
+      })
+      .catch(function (err) {
+        showError(custError, 'Error creating order: ' + err.message);
+      });
+  }
+
+  function enterGarmentScreen() {
+    showScreen('garmentEntry');
+    garmentBarcodeInput.value = '';
+    hideError(garmentError);
+    orderNumberEl.textContent = currentOrder.orderNumber;
+    orderCustomerEl.textContent = 'Customer: ' + currentOrder.customerName;
+    updateItemDisplay();
+  }
+
+  function updateItemDisplay() {
+    var count = currentOrder.items.length;
+    orderItemCountEl.textContent = 'Items: ' + count;
+
+    if (count === 0) {
+      orderItemsList.innerHTML = '<p class="items-placeholder">No garments added yet</p>';
+      btnFinishOrder.classList.add('hidden');
+    } else {
+      orderItemsList.innerHTML = '';
+      currentOrder.items.forEach(function (item, idx) {
+        var row = document.createElement('div');
+        row.className = 'item-row';
+        row.innerHTML =
+          '<div class="item-info">' + (idx + 1) + '. ' + escapeHtml(item.color || '') + ' ' + escapeHtml(item.garmentType || 'Garment') +
+          '<div class="item-sub">' + escapeHtml(item.barcode) + (item.brand ? ' — ' + escapeHtml(item.brand) : '') +
+          (item.dryClean && item.dryClean !== 'Not specified' ? ' — ' + escapeHtml(item.dryClean) : '') +
+          '</div></div>';
+        orderItemsList.appendChild(row);
+      });
+      btnFinishOrder.classList.remove('hidden');
+    }
+  }
+
+  // ========================================
+  // SCREEN 3: GARMENT ENTRY
+  // ========================================
+
+  function doGarmentLookup() {
+    var barcode = garmentBarcodeInput.value.trim();
+    if (!barcode) return;
+    hideError(garmentError);
+    btnScanGarment.disabled = true;
+    btnScanGarment.textContent = 'LOOKING UP...';
+
+    fetch('/api/garment/' + encodeURIComponent(barcode))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.found && data.garment) {
+          showExistingGarment(data.garment);
+        } else if (data.error && data.error.includes('not configured')) {
+          showError(garmentError, 'Database not configured.');
+        } else {
+          // Not found — go to camera capture with this barcode
+          currentGarmentBarcode = barcode;
+          isRescan = false;
+          goToCameraCapture();
+        }
+      })
+      .catch(function (err) {
+        showError(garmentError, 'Lookup failed: ' + err.message);
+      })
+      .finally(function () {
+        btnScanGarment.disabled = false;
+        btnScanGarment.textContent = 'SCAN GARMENT';
+      });
+  }
+
+  garmentBarcodeInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); doGarmentLookup(); }
+  });
+  btnScanGarment.addEventListener('click', doGarmentLookup);
+
+  btnNewGarment.addEventListener('click', function () {
+    hideError(garmentError);
+    btnNewGarment.disabled = true;
+    btnNewGarment.textContent = 'GENERATING...';
+
+    fetch('/api/garment/next-barcode')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        currentGarmentBarcode = data.barcode || ('GARM-' + String(Date.now()).slice(-5));
+        isRescan = false;
+        goToCameraCapture();
+      })
+      .catch(function () {
+        currentGarmentBarcode = 'GARM-' + String(Date.now()).slice(-5);
+        isRescan = false;
+        goToCameraCapture();
+      })
+      .finally(function () {
+        btnNewGarment.disabled = false;
+        btnNewGarment.textContent = 'NEW GARMENT';
+      });
+  });
+
+  btnFinishOrder.addEventListener('click', function () {
+    showReviewScreen();
+  });
+
+  btnGarmentBack.addEventListener('click', function () {
+    showScreen('customer');
+  });
+
+  // ========================================
+  // SCREEN 3b: EXISTING GARMENT FOUND
+  // ========================================
+
+  var pendingExistingGarment = null;
+
+  function showExistingGarment(garment) {
+    pendingExistingGarment = garment;
+    showScreen('existingGarment');
+
+    existBarcode.textContent = 'Barcode: ' + garment.barcode;
+
+    var rows = [];
+    if (garment.garment_type) rows.push({ label: 'Type', value: garment.garment_type });
+    if (garment.color) rows.push({ label: 'Color', value: garment.color });
+    if (garment.brand) rows.push({ label: 'Brand', value: garment.brand });
+    if (garment.fiber_content) rows.push({ label: 'Fiber', value: garment.fiber_content });
+    if (garment.care_dry_clean) rows.push({ label: 'Dry Clean', value: garment.care_dry_clean });
+    if (garment.care_washing) rows.push({ label: 'Washing', value: garment.care_washing });
+    if (garment.care_drying) rows.push({ label: 'Drying', value: garment.care_drying });
+    if (garment.care_ironing) rows.push({ label: 'Ironing', value: garment.care_ironing });
+    if (garment.care_bleaching) rows.push({ label: 'Bleaching', value: garment.care_bleaching });
+    if (garment.last_checked_in) {
+      rows.push({ label: 'Last checked in', value: new Date(garment.last_checked_in).toLocaleDateString() });
+    }
+
+    existDetails.innerHTML = rows.map(function (r) {
+      return '<div class="detail-row"><span class="detail-label">' + escapeHtml(r.label) + '</span><span class="detail-value">' + escapeHtml(r.value) + '</span></div>';
+    }).join('');
+
+    existPhotos.innerHTML = '';
+    if (garment.photo_front_url) {
+      var img = document.createElement('img');
+      img.src = garment.photo_front_url;
+      img.alt = 'Front photo';
+      existPhotos.appendChild(img);
+    }
+    if (garment.photo_label_url) {
+      var img2 = document.createElement('img');
+      img2.src = garment.photo_label_url;
+      img2.alt = 'Label photo';
+      existPhotos.appendChild(img2);
+    }
+  }
+
+  btnAddExisting.addEventListener('click', function () {
+    if (!pendingExistingGarment || !currentOrder) return;
+    var g = pendingExistingGarment;
+    addGarmentToOrder(g.barcode, {
+      barcode: g.barcode,
+      garmentType: g.garment_type || '',
+      color: g.color || '',
+      brand: g.brand || '',
+      fiberContent: g.fiber_content || '',
+      dryClean: g.care_dry_clean || '',
+      washing: g.care_washing || '',
+      drying: g.care_drying || '',
+      ironing: g.care_ironing || '',
+      bleaching: g.care_bleaching || '',
+    });
+  });
+
+  btnRescanExisting.addEventListener('click', function () {
+    if (!pendingExistingGarment) return;
+    currentGarmentBarcode = pendingExistingGarment.barcode;
+    isRescan = true;
+    goToCameraCapture();
+  });
+
+  btnExistBack.addEventListener('click', function () {
+    enterGarmentScreen();
+  });
+
+  // ========================================
+  // ADD GARMENT TO ORDER (shared)
+  // ========================================
+
+  function addGarmentToOrder(barcode, garmentData) {
+    // Add to order_items in DB
+    fetch('/api/order/' + currentOrder.id + '/items', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ garment_barcode: barcode }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) console.error('Order item save error:', data.error);
+      })
+      .catch(function (err) {
+        console.error('Order item save error:', err);
+      });
+
+    // Add to local state
+    currentOrder.items.push(garmentData);
+    enterGarmentScreen();
+  }
+
+  // ========================================
+  // SCREEN 4: CAMERA CAPTURE
+  // ========================================
+
+  function goToCameraCapture() {
+    showScreen('camera');
+    cameraOrderNum.textContent = currentOrder.orderNumber + ' — ' + currentOrder.customerName;
+    cameraGarmentBarcode.textContent = 'New Garment: ' + currentGarmentBarcode;
+
+    // Reset capture state
+    currentGarment = createEmptyGarment();
+    lastGarmentPhoto = null;
+    lastLabelPhoto = null;
+    clearAllFields();
+    resetGroups();
+    captureConfirm.classList.add('hidden');
+
+    initCamera().then(function () {
+      transitionCapture(CAPTURE_STATES.GARMENT_SCAN);
     });
   }
 
-  function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  }
-
-  // ---- STABILITY METER ----
-
-  function updateStabilityMeter() {
-    const pct = stabilityWindow > 0 ? Math.min(100, (consecutiveDetections / stabilityWindow) * 100) : 0;
-    stabilityFill.style.width = pct + '%';
-
-    stabilityFill.classList.remove('low', 'medium', 'high');
-    if (consecutiveDetections >= stabilityWindow) {
-      stabilityFill.classList.add('high');
-    } else if (consecutiveDetections > 0) {
-      stabilityFill.classList.add('medium');
-    } else {
-      stabilityFill.classList.add('low');
-    }
-
-    if (consecutiveDetections >= stabilityWindow) {
-      stabilityText.textContent = 'CAPTURING';
-    } else if (consecutiveDetections > 0) {
-      stabilityText.textContent = consecutiveDetections + '/' + stabilityWindow + ' STABLE';
-    } else {
-      stabilityText.textContent = 'SEARCHING';
+  async function initCamera() {
+    if (cameraInitialized) return;
+    try {
+      await navigator.mediaDevices.getUserMedia({ video: true });
+      var devices = await navigator.mediaDevices.enumerateDevices();
+      var videoDevices = devices.filter(function (d) { return d.kind === 'videoinput'; });
+      cameraSelect.innerHTML = '';
+      videoDevices.forEach(function (device, i) {
+        var option = document.createElement('option');
+        option.value = device.deviceId;
+        option.textContent = device.label || 'Camera ' + (i + 1);
+        cameraSelect.appendChild(option);
+      });
+      if (videoDevices.length > 0) {
+        cameraSelect.value = videoDevices[videoDevices.length - 1].deviceId;
+      }
+      await startCamera(cameraSelect.value);
+      cameraInitialized = true;
+    } catch (err) {
+      console.error('Camera init failed:', err);
+      statePrompt.textContent = 'Camera access denied';
     }
   }
 
-  function showStabilityMeter() {
-    stabilityMeter.classList.add('visible');
+  async function startCamera(deviceId) {
+    if (cameraFeed.srcObject) {
+      cameraFeed.srcObject.getTracks().forEach(function (t) { t.stop(); });
+    }
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      cameraFeed.srcObject = stream;
+      await cameraFeed.play();
+    } catch (err) {
+      console.error('Camera start failed:', err);
+      statePrompt.textContent = 'Failed to start camera';
+    }
   }
 
-  function hideStabilityMeter() {
-    stabilityMeter.classList.remove('visible');
+  cameraSelect.addEventListener('change', function () { startCamera(cameraSelect.value); });
+  stabilitySelect.addEventListener('change', function () {
+    stabilityWindow = parseInt(stabilitySelect.value);
     consecutiveDetections = 0;
     updateStabilityMeter();
-  }
+  });
 
-  // ---- PROGRESSIVE PROCESSING TEXT ----
-
-  function startProgressiveText(texts) {
-    let idx = 0;
-    stopProgressiveText();
-    statePrompt.innerHTML = '<span class="spinner"></span> ' + texts[0];
-    processingTextInterval = setInterval(() => {
-      idx++;
-      if (idx < texts.length) {
-        statePrompt.innerHTML = '<span class="spinner"></span> ' + texts[idx];
-      }
-    }, 1200);
-  }
-
-  function stopProgressiveText() {
-    if (processingTextInterval) {
-      clearInterval(processingTextInterval);
-      processingTextInterval = null;
-    }
-  }
-
-  // ---- STATE MACHINE ----
-
-  function transitionTo(state) {
-    currentState = state;
+  // ---- CAPTURE STATE MACHINE ----
+  function transitionCapture(state) {
+    captureState = state;
     consecutiveDetections = 0;
     isProcessing = false;
     setBracketState(null);
@@ -344,46 +609,39 @@
     hideStabilityMeter();
     stopProgressiveText();
 
-    stateDots.forEach((dot) => {
-      const s = parseInt(dot.dataset.state);
+    stateDots.forEach(function (dot) {
+      var s = parseInt(dot.dataset.state);
       dot.classList.remove('active', 'done');
       if (s < state) dot.classList.add('done');
       if (s === state) dot.classList.add('active');
     });
 
     damageControls.classList.add('hidden');
-    completeControls.classList.add('hidden');
+    captureConfirm.classList.add('hidden');
 
-    if (state > STATES.GARMENT_SCAN) {
-      btnBack.classList.remove('hidden');
-    } else {
-      btnBack.classList.add('hidden');
-    }
+    btnCameraBack.style.display = state > CAPTURE_STATES.GARMENT_SCAN ? '' : 'none';
 
     switch (state) {
-      case STATES.GARMENT_SCAN:
+      case CAPTURE_STATES.GARMENT_SCAN:
         statePrompt.textContent = 'Place garment in frame';
         highlightGroup('garment');
         startAutoScan();
         break;
-
-      case STATES.DAMAGE_CAPTURE:
+      case CAPTURE_STATES.DAMAGE_CAPTURE:
         statePrompt.textContent = 'Any damage? Hold it to camera, or skip';
         highlightGroup('damage');
         damageControls.classList.remove('hidden');
         stopAutoScan();
         break;
-
-      case STATES.CARE_LABEL:
+      case CAPTURE_STATES.CARE_LABEL:
         statePrompt.textContent = 'Show care label to camera';
         highlightGroup('care');
         startAutoScan();
         break;
-
-      case STATES.COMPLETE:
+      case CAPTURE_STATES.CAPTURE_COMPLETE:
         statePrompt.textContent = 'Review and confirm';
         highlightGroup(null);
-        completeControls.classList.remove('hidden');
+        captureConfirm.classList.remove('hidden');
         stopAutoScan();
         markGroupComplete('garment');
         markGroupComplete('damage');
@@ -394,7 +652,6 @@
   }
 
   // ---- AUTO-SCAN LOOP ----
-
   function startAutoScan() {
     stopAutoScan();
     consecutiveDetections = 0;
@@ -404,33 +661,25 @@
   }
 
   function stopAutoScan() {
-    if (scanInterval) {
-      clearInterval(scanInterval);
-      scanInterval = null;
-    }
+    if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
   }
 
   async function autoScanTick() {
     if (isProcessing) return;
     if (cameraFeed.videoWidth === 0) return;
-
-    const image = captureFrame();
-    const mode =
-      currentState === STATES.GARMENT_SCAN ? 'garment' : 'label';
-
+    var image = captureFrame();
+    var mode = captureState === CAPTURE_STATES.GARMENT_SCAN ? 'garment' : 'label';
     isProcessing = true;
 
     try {
-      const resp = await fetch('/api/detect', {
+      var resp = await fetch('/api/detect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image, mode }),
+        body: JSON.stringify({ image: image, mode: mode }),
       });
-
-      const result = await resp.json();
+      var result = await resp.json();
 
       if (!resp.ok) {
-        console.error('Detection API error:', result.error);
         setDetectionText(result.error || 'API error');
         detectionIndicator.classList.add('error');
         consecutiveDetections = 0;
@@ -442,16 +691,11 @@
       detectionIndicator.classList.remove('error');
 
       if (result.detected) {
-        const prevCount = consecutiveDetections;
+        var prev = consecutiveDetections;
         consecutiveDetections++;
         updateStabilityMeter();
+        if (prev === 0) playDetectionTick();
 
-        // Play tick on first detection
-        if (prevCount === 0) {
-          playDetectionTick();
-        }
-
-        // Bracket states: yellow when detected but not yet stable, green when about to capture
         if (consecutiveDetections >= stabilityWindow) {
           setBracketState('locking');
           setDetectionText('Capturing...');
@@ -462,15 +706,13 @@
           setDetectionText(consecutiveDetections + '/' + stabilityWindow + ' stable');
         }
       } else {
-        // Any miss resets the counter
         consecutiveDetections = 0;
         updateStabilityMeter();
         setBracketState(null);
         setDetectionText('Watching...');
       }
     } catch (err) {
-      console.error('Auto-scan error:', err);
-      setDetectionText('Network error — retrying...');
+      setDetectionText('Network error');
       detectionIndicator.classList.add('error');
       consecutiveDetections = 0;
       updateStabilityMeter();
@@ -486,48 +728,83 @@
     setBracketState('captured');
     hideStabilityMeter();
 
-    if (currentState === STATES.GARMENT_SCAN) {
+    if (captureState === CAPTURE_STATES.GARMENT_SCAN) {
       lastGarmentPhoto = image;
       await analyzeGarment(image);
-    } else if (currentState === STATES.CARE_LABEL) {
+    } else if (captureState === CAPTURE_STATES.CARE_LABEL) {
       lastLabelPhoto = image;
       await analyzeLabel(image);
     }
   }
 
-  // ---- ANALYSIS FUNCTIONS ----
+  // ---- STABILITY METER ----
+  function updateStabilityMeter() {
+    var pct = stabilityWindow > 0 ? Math.min(100, (consecutiveDetections / stabilityWindow) * 100) : 0;
+    stabilityFill.style.width = pct + '%';
+    stabilityFill.classList.remove('low', 'medium', 'high');
+    if (consecutiveDetections >= stabilityWindow) stabilityFill.classList.add('high');
+    else if (consecutiveDetections > 0) stabilityFill.classList.add('medium');
+    else stabilityFill.classList.add('low');
 
+    if (consecutiveDetections >= stabilityWindow) stabilityText.textContent = 'CAPTURING';
+    else if (consecutiveDetections > 0) stabilityText.textContent = consecutiveDetections + '/' + stabilityWindow + ' STABLE';
+    else stabilityText.textContent = 'SEARCHING';
+  }
+
+  function showStabilityMeter() { stabilityMeter.classList.add('visible'); }
+  function hideStabilityMeter() { stabilityMeter.classList.remove('visible'); consecutiveDetections = 0; updateStabilityMeter(); }
+
+  // ---- CAMERA HELPERS ----
+  function captureFrame() {
+    var ctx = captureCanvas.getContext('2d');
+    captureCanvas.width = cameraFeed.videoWidth;
+    captureCanvas.height = cameraFeed.videoHeight;
+    ctx.drawImage(cameraFeed, 0, 0);
+    return captureCanvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+  }
+
+  function triggerFlash() {
+    flashOverlay.classList.add('flash');
+    setTimeout(function () { flashOverlay.classList.remove('flash'); }, 200);
+  }
+
+  function setBracketState(state) {
+    brackets.forEach(function (b) { b.classList.remove('detecting', 'locking', 'captured'); if (state) b.classList.add(state); });
+  }
+
+  function setDetectionText(text) {
+    detectionIndicator.textContent = text;
+    detectionIndicator.classList.toggle('visible', !!text);
+  }
+
+  function startProgressiveText(texts) {
+    var idx = 0;
+    stopProgressiveText();
+    statePrompt.innerHTML = '<span class="spinner"></span> ' + texts[0];
+    processingTextInterval = setInterval(function () {
+      idx++;
+      if (idx < texts.length) statePrompt.innerHTML = '<span class="spinner"></span> ' + texts[idx];
+    }, 1200);
+  }
+  function stopProgressiveText() { if (processingTextInterval) { clearInterval(processingTextInterval); processingTextInterval = null; } }
+
+  // ---- AI ANALYSIS ----
   async function analyzeGarment(image) {
-    startProgressiveText([
-      'Identifying garment...',
-      'Classifying type & color...',
-      'Checking for brand...',
-    ]);
-
+    startProgressiveText(['Identifying garment...', 'Classifying type & color...', 'Checking for brand...']);
     try {
-      const resp = await fetch('/api/analyze/garment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image }),
-      });
-
-      const data = await resp.json();
+      var resp = await fetch('/api/analyze/garment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: image }) });
+      var data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Garment analysis failed');
-
       stopProgressiveText();
-
       currentGarment.garmentType = data.garmentType || '';
       currentGarment.color = data.color || '';
       currentGarment.brand = data.brand || '';
-
       setFieldValue(fields.type, data.garmentType);
       setFieldValue(fields.color, data.color);
       setFieldValue(fields.brand, data.brand);
-
       markGroupComplete('garment');
-      transitionTo(STATES.DAMAGE_CAPTURE);
+      transitionCapture(CAPTURE_STATES.DAMAGE_CAPTURE);
     } catch (err) {
-      console.error('Garment analysis error:', err);
       stopProgressiveText();
       statePrompt.textContent = err.message || 'Analysis failed — retrying...';
       consecutiveDetections = 0;
@@ -539,92 +816,49 @@
     isProcessing = true;
     statePrompt.innerHTML = '<span class="spinner"></span> Analyzing damage...';
     btnCaptureDamage.disabled = true;
-
     try {
-      const resp = await fetch('/api/analyze/damage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image }),
-      });
-
-      const data = await resp.json();
+      var resp = await fetch('/api/analyze/damage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: image }) });
+      var data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Damage analysis failed');
-
-      const timestamp = new Date().toLocaleTimeString();
-      const damageEntry = {
-        timestamp,
-        type: data.type || 'Unknown',
-        location: data.location || '',
-        severity: data.severity || '',
-        description: data.description || '',
-      };
-
-      currentGarment.damages.push(damageEntry);
-      renderDamageEntry(damageEntry);
+      currentGarment.damages.push(data);
+      var placeholder = damageList.querySelector('.placeholder-text');
+      if (placeholder) placeholder.remove();
+      var div = document.createElement('div');
+      div.className = 'damage-entry';
+      div.innerHTML = '<div class="damage-time">' + (data.severity || '') + ' ' + (data.type || '') + '</div><div class="damage-desc">' + (data.location ? data.location + ': ' : '') + (data.description || '') + '</div>';
+      damageList.appendChild(div);
       triggerFlash();
-
-      statePrompt.textContent =
-        'Damage recorded. Capture more or skip.';
+      statePrompt.textContent = 'Damage recorded. Capture more or skip.';
     } catch (err) {
-      console.error('Damage analysis error:', err);
-      statePrompt.textContent = err.message || 'Damage capture failed. Try again or skip.';
+      statePrompt.textContent = err.message || 'Damage capture failed.';
     } finally {
       isProcessing = false;
       btnCaptureDamage.disabled = false;
     }
   }
 
-  function renderDamageEntry(entry) {
-    const placeholder = damageList.querySelector('.placeholder-text');
-    if (placeholder) placeholder.remove();
-
-    const div = document.createElement('div');
-    div.className = 'damage-entry';
-    div.innerHTML = `
-      <div class="damage-time">${entry.timestamp} — ${entry.severity} ${entry.type}</div>
-      <div class="damage-desc">${entry.location ? entry.location + ': ' : ''}${entry.description}</div>
-    `;
-    damageList.appendChild(div);
-  }
-
   async function analyzeLabel(image) {
-    startProgressiveText([
-      'Reading care symbols...',
-      'Extracting fiber content...',
-      'Interpreting wash instructions...',
-      'Finalizing care details...',
-    ]);
-
+    startProgressiveText(['Reading care symbols...', 'Extracting fiber content...', 'Interpreting instructions...']);
     try {
-      const resp = await fetch('/api/analyze/label', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image }),
-      });
-
-      const data = await resp.json();
+      var resp = await fetch('/api/analyze/label', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: image }) });
+      var data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Label analysis failed');
-
       stopProgressiveText();
-
       currentGarment.fiberContent = data.fiberContent || '';
       currentGarment.dryClean = data.dryClean || '';
       currentGarment.washing = data.washing || '';
       currentGarment.drying = data.drying || '';
       currentGarment.ironing = data.ironing || '';
       currentGarment.bleaching = data.bleaching || '';
-
       setFieldValue(fields.fiber, data.fiberContent);
       setFieldValue(fields.dryClean, data.dryClean);
       setFieldValue(fields.washing, data.washing);
       setFieldValue(fields.drying, data.drying);
       setFieldValue(fields.ironing, data.ironing);
       setFieldValue(fields.bleaching, data.bleaching);
-
       markGroupComplete('care');
-      transitionTo(STATES.COMPLETE);
+      transitionCapture(CAPTURE_STATES.CAPTURE_COMPLETE);
     } catch (err) {
-      console.error('Label analysis error:', err);
       stopProgressiveText();
       statePrompt.textContent = err.message || 'Label read failed — retrying...';
       consecutiveDetections = 0;
@@ -632,9 +866,37 @@
     }
   }
 
-  // ---- ORDER MANAGEMENT ----
+  // ---- CAMERA SCREEN BUTTONS ----
+  btnCaptureDamage.addEventListener('click', function () {
+    if (isProcessing || cameraFeed.videoWidth === 0) return;
+    analyzeDamage(captureFrame());
+  });
 
-  function addToOrder() {
+  btnSkipDamage.addEventListener('click', function () {
+    markGroupComplete('damage');
+    transitionCapture(CAPTURE_STATES.CARE_LABEL);
+  });
+
+  btnCameraBack.addEventListener('click', function () {
+    stopAutoScan();
+    isProcessing = false;
+    stopProgressiveText();
+    if (captureState === CAPTURE_STATES.DAMAGE_CAPTURE) {
+      groups.garment.classList.remove('complete');
+      transitionCapture(CAPTURE_STATES.GARMENT_SCAN);
+    } else if (captureState === CAPTURE_STATES.CARE_LABEL) {
+      groups.damage.classList.remove('complete');
+      transitionCapture(CAPTURE_STATES.DAMAGE_CAPTURE);
+    } else if (captureState === CAPTURE_STATES.CAPTURE_COMPLETE) {
+      groups.care.classList.remove('complete');
+      transitionCapture(CAPTURE_STATES.CARE_LABEL);
+    }
+  });
+
+  btnConfirmAdd.addEventListener('click', function () {
+    stopAutoScan();
+
+    // Read field values (staff may have edited)
     currentGarment.garmentType = fields.type.value;
     currentGarment.color = fields.color.value;
     currentGarment.brand = fields.brand.value;
@@ -644,640 +906,135 @@
     currentGarment.drying = fields.drying.value;
     currentGarment.ironing = fields.ironing.value;
     currentGarment.bleaching = fields.bleaching.value;
-    currentGarment.preferences = fields.prefs.value;
+    currentGarment.barcode = currentGarmentBarcode;
 
-    orderCounter++;
-    currentGarment.intakePhoto = lastGarmentPhoto || '';
-    currentGarment.orderNumber = orderCounter;
-    // Use existing barcode if loaded from DB, otherwise generate new
-    currentGarment.barcode = existingDbGarment ? existingDbGarment.barcode : generateBarcode();
-    currentGarment.checkInDate = new Date();
-
-    order.push({ ...currentGarment });
-    renderOrderCard(currentGarment, order.length);
-    updateOrderCount();
-
-    // Save to database in background
+    // Save garment to DB
     saveGarmentToDatabase(currentGarment);
-  }
 
-  function renderOrderCard(garment, index) {
-    if (orderPlaceholder) orderPlaceholder.style.display = 'none';
+    // Add to order
+    addGarmentToOrder(currentGarmentBarcode, { ...currentGarment });
+  });
 
-    const card = document.createElement('div');
-    card.className = 'order-card';
+  // ---- SAVE GARMENT TO DB ----
+  function saveGarmentToDatabase(garment) {
+    var payload = {
+      barcode: garment.barcode,
+      garmentType: garment.garmentType,
+      color: garment.color,
+      brand: garment.brand,
+      fiberContent: garment.fiberContent,
+      careDryClean: garment.dryClean,
+      careWashing: garment.washing,
+      careDrying: garment.drying,
+      careIroning: garment.ironing,
+      careBleaching: garment.bleaching,
+      damageNotes: garment.damages.length > 0
+        ? garment.damages.map(function (d) { return (d.severity || '') + ' ' + (d.type || '') + (d.location ? ' at ' + d.location : ''); }).join('; ')
+        : null,
+      photos: {},
+    };
+    if (lastGarmentPhoto) payload.photos.front = lastGarmentPhoto;
+    if (lastLabelPhoto) payload.photos.label = lastLabelPhoto;
 
-    let tagsHtml = '';
-    if (garment.fiberContent) {
-      tagsHtml += `<span class="card-tag">${escapeHtml(garment.fiberContent)}</span>`;
-    }
-    if (garment.dryClean && garment.dryClean !== 'Not specified') {
-      tagsHtml += `<span class="card-tag">${escapeHtml(garment.dryClean)}</span>`;
-    }
-    if (garment.damages.length > 0) {
-      tagsHtml += `<span class="card-tag damage">${garment.damages.length} damage note${garment.damages.length > 1 ? 's' : ''}</span>`;
-    }
-    if (garment.preferences) {
-      tagsHtml += `<span class="card-tag">${escapeHtml(garment.preferences)}</span>`;
-    }
-
-    card.innerHTML = `
-      <div class="card-header">
-        <span class="card-number">#${garment.orderNumber} — ${escapeHtml(garment.barcode)}</span>
-      </div>
-      <div class="card-title">${escapeHtml(garment.color)} ${escapeHtml(garment.garmentType)}</div>
-      ${garment.brand ? `<div class="card-detail">${escapeHtml(garment.brand)}</div>` : ''}
-      ${tagsHtml ? `<div class="card-tags">${tagsHtml}</div>` : ''}
-    `;
-
-    orderList.appendChild(card);
-  }
-
-  function updateOrderCount() {
-    orderCount.textContent = `(${order.length} item${order.length !== 1 ? 's' : ''})`;
-  }
-
-  function resetForNewGarment() {
-    currentGarment = createEmptyGarment();
-    lastGarmentPhoto = null;
-    lastLabelPhoto = null;
-    existingDbGarment = null;
-    existingBanner.classList.add('hidden');
-    barcodeInput.value = '';
-    clearAllFields();
-    resetGroups();
-    transitionTo(STATES.GARMENT_SCAN);
-  }
-
-  // ---- SUPABASE / BARCODE LOOKUP ----
-
-  async function barcodeLookup(barcode) {
-    if (!barcode || barcode.trim().length === 0) return;
-    barcode = barcode.trim();
-
-    barcodeInput.disabled = true;
-    btnBarcodeLookup.disabled = true;
-    btnBarcodeLookup.textContent = '...';
-
-    try {
-      const resp = await fetch('/api/garment/' + encodeURIComponent(barcode));
-      const data = await resp.json();
-
-      if (data.found && data.garment) {
-        displayExistingGarment(data.garment);
-      } else if (data.error && data.error.includes('not configured')) {
-        // Supabase not configured — silently continue with camera workflow
-        console.log('Database not configured, continuing with camera flow');
-      } else {
-        // Not found — continue with normal workflow
-        statePrompt.textContent = 'New garment — place in frame';
-        existingBanner.classList.add('hidden');
-      }
-    } catch (err) {
-      console.error('Barcode lookup error:', err);
-      // Network error — continue with camera workflow
-    } finally {
-      barcodeInput.disabled = false;
-      btnBarcodeLookup.disabled = false;
-      btnBarcodeLookup.textContent = 'Lookup';
-    }
-  }
-
-  function displayExistingGarment(garment) {
-    existingDbGarment = garment;
-
-    // Stop auto-scan while showing existing record
-    stopAutoScan();
-    hideStabilityMeter();
-
-    // Populate all fields from database record
-    setFieldValue(fields.type, garment.garment_type);
-    setFieldValue(fields.color, garment.color);
-    setFieldValue(fields.brand, garment.brand);
-    setFieldValue(fields.fiber, garment.fiber_content);
-    setFieldValue(fields.dryClean, garment.care_dry_clean);
-    setFieldValue(fields.washing, garment.care_washing);
-    setFieldValue(fields.drying, garment.care_drying);
-    setFieldValue(fields.ironing, garment.care_ironing);
-    setFieldValue(fields.bleaching, garment.care_bleaching);
-
-    // Show last checked in date
-    if (garment.last_checked_in) {
-      const date = new Date(garment.last_checked_in);
-      existingLastDate.textContent = 'Last checked in: ' + date.toLocaleDateString();
-    } else {
-      existingLastDate.textContent = '';
-    }
-
-    // Show photo thumbnails
-    existingPhotos.innerHTML = '';
-    if (garment.photo_front_url) {
-      const img = document.createElement('img');
-      img.src = garment.photo_front_url;
-      img.alt = 'Front photo';
-      existingPhotos.appendChild(img);
-    }
-    if (garment.photo_label_url) {
-      const img = document.createElement('img');
-      img.src = garment.photo_label_url;
-      img.alt = 'Label photo';
-      existingPhotos.appendChild(img);
-    }
-
-    // Show the banner
-    existingBanner.classList.remove('hidden');
-    statePrompt.textContent = 'Returning garment found in database';
-    setBracketState('captured');
-    setDetectionText('');
-
-    // Update barcode input to show the matched barcode
-    barcodeInput.value = garment.barcode;
-  }
-
-  function useExistingGarment() {
-    if (!existingDbGarment) return;
-
-    // Mark all groups as complete
-    markGroupComplete('garment');
-    markGroupComplete('damage');
-    markGroupComplete('care');
-
-    // Transition directly to COMPLETE state
-    existingBanner.classList.add('hidden');
-    transitionTo(STATES.COMPLETE);
-  }
-
-  function rescanGarment() {
-    existingDbGarment = null;
-    existingBanner.classList.add('hidden');
-    clearAllFields();
-    resetGroups();
-    transitionTo(STATES.GARMENT_SCAN);
-  }
-
-  async function saveGarmentToDatabase(garment) {
-    try {
-      const payload = {
-        barcode: garment.barcode,
-        garmentType: garment.garmentType,
-        color: garment.color,
-        brand: garment.brand,
-        fiberContent: garment.fiberContent,
-        careDryClean: garment.dryClean,
-        careWashing: garment.washing,
-        careDrying: garment.drying,
-        careIroning: garment.ironing,
-        careBleaching: garment.bleaching,
-        damageNotes: garment.damages.length > 0
-          ? garment.damages.map(function(d) { return d.severity + ' ' + d.type + (d.location ? ' at ' + d.location : ''); }).join('; ')
-          : null,
-        photos: {},
-      };
-
-      // Attach photos if available
-      if (lastGarmentPhoto) {
-        payload.photos.front = lastGarmentPhoto;
-      }
-      if (lastLabelPhoto) {
-        payload.photos.label = lastLabelPhoto;
-      }
-
-      const resp = await fetch('/api/garment/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+    fetch('/api/garment/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.success) console.log('Garment saved:', garment.barcode);
+        else console.error('Garment save error:', data.error);
+      })
+      .catch(function (err) {
+        console.error('Garment save error:', err);
       });
-
-      const result = await resp.json();
-
-      if (resp.ok && result.success) {
-        console.log('Garment saved to database:', garment.barcode);
-        showSaveStatus('saved', 'Saved to database');
-      } else {
-        console.error('Save failed:', result.error);
-        showSaveStatus('save-error', result.error || 'Save failed');
-      }
-    } catch (err) {
-      console.error('Database save error:', err);
-      showSaveStatus('save-error', 'Could not reach database');
-    }
   }
 
-  function showSaveStatus(type, message) {
-    // Find the last order card and append status
-    const cards = orderList.querySelectorAll('.order-card');
-    if (cards.length === 0) return;
-    const lastCard = cards[cards.length - 1];
+  // ========================================
+  // SCREEN 5: ORDER REVIEW
+  // ========================================
 
-    // Remove any existing status
-    const existing = lastCard.querySelector('.save-status');
-    if (existing) existing.remove();
+  function showReviewScreen() {
+    showScreen('review');
+    reviewOrderInfo.innerHTML =
+      '<strong>' + escapeHtml(currentOrder.orderNumber) + '</strong><br>' +
+      'Customer: ' + escapeHtml(currentOrder.customerName);
 
-    const status = document.createElement('div');
-    status.className = 'save-status ' + type;
-    status.textContent = message;
-    lastCard.appendChild(status);
-
-    // Auto-hide success after 3 seconds
-    if (type === 'saved') {
-      setTimeout(function() { status.remove(); }, 3000);
-    }
+    renderReviewItems();
   }
 
-  // ---- ORPHAN RECOVERY ----
+  function renderReviewItems() {
+    reviewItemsList.innerHTML = '';
 
-  let orphanPhoto = null;
-  let orphanCandidates = [];
-
-  function populateOrphanDropdowns() {
-    GARMENT_TYPES.forEach((t) => {
-      const opt = document.createElement('option');
-      opt.value = t;
-      opt.textContent = t;
-      orphanTypeSelect.appendChild(opt);
-    });
-
-    COLORS.forEach((c) => {
-      const opt = document.createElement('option');
-      opt.value = c;
-      opt.textContent = c;
-      orphanColorSelect.appendChild(opt);
-    });
-  }
-
-  function filterCandidates() {
-    const typeFilter = orphanTypeSelect.value;
-    const colorFilter = orphanColorSelect.value;
-    const days = parseInt(orphanDateRange.value);
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
-
-    return order.filter((g) => {
-      if (!g.intakePhoto) return false;
-      if (typeFilter && g.garmentType !== typeFilter) return false;
-      if (colorFilter && g.color !== colorFilter) return false;
-      if (g.checkInDate && g.checkInDate < cutoff) return false;
-      return true;
-    }).slice(0, 10);
-  }
-
-  function updateCandidateCount() {
-    const candidates = filterCandidates();
-    if (candidates.length === 0) {
-      orphanCandidateCount.textContent = 'No garments match these filters. Try widening your search.';
-      btnOrphanNext1.disabled = true;
-    } else {
-      orphanCandidateCount.textContent = candidates.length + ' candidate garment' + (candidates.length !== 1 ? 's' : '') + ' found.';
-      btnOrphanNext1.disabled = false;
-    }
-  }
-
-  function showOrphanStep(step) {
-    [orphanStep1, orphanStep2, orphanStep3, orphanStep4, orphanStep5].forEach((s) => {
-      s.classList.add('hidden');
-    });
-    step.classList.remove('hidden');
-
-    if (step === orphanStep2) {
-      // Share camera stream with orphan video
-      if (cameraFeed.srcObject) {
-        orphanVideo.srcObject = cameraFeed.srcObject;
-        orphanVideo.play().catch(() => {});
-      }
-      // Reset capture state
-      orphanPreview.classList.add('hidden');
-      btnOrphanCapture.classList.remove('hidden');
-      btnOrphanRetake.classList.add('hidden');
-      btnOrphanSearch.classList.add('hidden');
-      orphanPhoto = null;
-    }
-  }
-
-  function openOrphanModal() {
-    stopAutoScan();
-    orphanModal.classList.remove('hidden');
-    showOrphanStep(orphanStep1);
-    updateCandidateCount();
-  }
-
-  function closeOrphanModal() {
-    orphanModal.classList.add('hidden');
-    orphanVideo.srcObject = null;
-    orphanPhoto = null;
-    orphanCandidates = [];
-    // Resume auto-scan if in a scan state
-    if (currentState === STATES.GARMENT_SCAN || currentState === STATES.CARE_LABEL) {
-      startAutoScan();
-    }
-  }
-
-  function captureOrphanFrame() {
-    const ctx = orphanCanvas.getContext('2d');
-    orphanCanvas.width = orphanVideo.videoWidth;
-    orphanCanvas.height = orphanVideo.videoHeight;
-    ctx.drawImage(orphanVideo, 0, 0);
-    return orphanCanvas.toDataURL('image/jpeg', 0.8).split(',')[1];
-  }
-
-  function orphanDoCapture() {
-    orphanPhoto = captureOrphanFrame();
-    orphanPreviewImg.src = 'data:image/jpeg;base64,' + orphanPhoto;
-    orphanPreview.classList.remove('hidden');
-    btnOrphanCapture.classList.add('hidden');
-    btnOrphanRetake.classList.remove('hidden');
-    btnOrphanSearch.classList.remove('hidden');
-  }
-
-  function orphanRetake() {
-    orphanPhoto = null;
-    orphanPreview.classList.add('hidden');
-    btnOrphanCapture.classList.remove('hidden');
-    btnOrphanRetake.classList.add('hidden');
-    btnOrphanSearch.classList.add('hidden');
-  }
-
-  async function orphanSearch() {
-    orphanCandidates = filterCandidates();
-    if (!orphanPhoto || orphanCandidates.length === 0) return;
-
-    showOrphanStep(orphanStep3);
-    orphanSearchText.textContent = 'Analyzing and comparing to ' + orphanCandidates.length + ' recent garment' + (orphanCandidates.length !== 1 ? 's' : '') + '...';
-
-    try {
-      const candidateData = orphanCandidates.map((g) => ({
-        barcode: g.barcode,
-        orderNumber: g.orderNumber,
-        photo: g.intakePhoto,
-      }));
-
-      const resp = await fetch('/api/orphan/match', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orphanPhoto, candidates: candidateData }),
-      });
-
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || 'Matching failed');
-
-      displayOrphanResults(data);
-    } catch (err) {
-      console.error('Orphan matching error:', err);
-      showOrphanStep(orphanStep4);
-      orphanWarning.classList.remove('hidden');
-      orphanWarning.textContent = 'Error: ' + (err.message || 'Matching failed. Try again.');
-      orphanResults.innerHTML = '';
-    }
-  }
-
-  function displayOrphanResults(data) {
-    showOrphanStep(orphanStep4);
-    orphanResults.innerHTML = '';
-    orphanWarning.classList.add('hidden');
-
-    const matches = (data.matches || []).sort((a, b) => b.confidence - a.confidence).slice(0, 3);
-
-    if (matches.length === 0) {
-      orphanWarning.classList.remove('hidden');
-      orphanWarning.textContent = 'No matches found. Try widening the date range or changing filters.';
+    if (currentOrder.items.length === 0) {
+      reviewItemsList.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;">No items in order</p>';
       return;
     }
 
-    const topConfidence = matches[0].confidence;
-    const highMatches = matches.filter((m) => m.confidence >= 0.85);
-
-    if (topConfidence < 0.6) {
-      orphanWarning.classList.remove('hidden');
-      orphanWarning.textContent = 'Low confidence — No strong matches found. Verify carefully or try different filters.';
-    } else if (highMatches.length >= 2) {
-      orphanWarning.classList.remove('hidden');
-      orphanWarning.textContent = 'Multiple possible matches found — verify carefully before selecting.';
-    }
-
-    matches.forEach((match) => {
-      const candidate = orphanCandidates.find((g) => g.barcode === match.candidateId);
-      if (!candidate) return;
-
-      const confPct = Math.round(match.confidence * 100);
-      const confClass = confPct >= 80 ? 'high' : confPct >= 60 ? 'medium' : 'low';
-      const dateStr = candidate.checkInDate ? candidate.checkInDate.toLocaleDateString() : 'N/A';
-
-      const featuresHtml = (match.matchingFeatures || [])
-        .map((f) => '<span>' + escapeHtml(f) + '</span>')
-        .join('');
-
-      const card = document.createElement('div');
-      card.className = 'match-card';
-      card.innerHTML = `
-        <div class="match-card-header">
-          <div class="match-confidence ${confClass}">${confPct}% MATCH</div>
-          <div class="match-meta">
-            Order #${candidate.orderNumber}<br>
-            ${escapeHtml(candidate.color)} ${escapeHtml(candidate.garmentType)}<br>
-            Checked in: ${dateStr}
-          </div>
-        </div>
-        <div class="match-photos">
-          <div>
-            <div class="match-photo-label">Orphan</div>
-            <img src="data:image/jpeg;base64,${orphanPhoto}" alt="Orphan garment">
-          </div>
-          <div>
-            <div class="match-photo-label">Intake Photo</div>
-            <img src="data:image/jpeg;base64,${candidate.intakePhoto}" alt="Candidate intake">
-          </div>
-        </div>
-        ${featuresHtml ? '<div class="match-features">' + featuresHtml + '</div>' : ''}
-        <button class="btn-select-match" data-barcode="${escapeHtml(candidate.barcode)}">SELECT THIS MATCH</button>
-      `;
-      orphanResults.appendChild(card);
+    currentOrder.items.forEach(function (item, idx) {
+      var card = document.createElement('div');
+      card.className = 'review-card';
+      card.innerHTML =
+        '<div class="review-card-info">' +
+        '<div class="review-card-title">' + (idx + 1) + '. ' + escapeHtml(item.color || '') + ' ' + escapeHtml(item.garmentType || 'Garment') + '</div>' +
+        '<div class="review-card-sub">' + escapeHtml(item.barcode || '') +
+        (item.brand ? ' — ' + escapeHtml(item.brand) : '') +
+        (item.dryClean && item.dryClean !== 'Not specified' ? ' — ' + escapeHtml(item.dryClean) : '') +
+        '</div></div>' +
+        '<button class="btn-remove" data-idx="' + idx + '">Remove</button>';
+      reviewItemsList.appendChild(card);
     });
 
-    // Wire up select buttons
-    orphanResults.querySelectorAll('.btn-select-match').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        confirmOrphanMatch(btn.dataset.barcode);
+    reviewItemsList.querySelectorAll('.btn-remove').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var i = parseInt(btn.dataset.idx);
+        var removed = currentOrder.items[i];
+        if (!removed) return;
+        // Remove from DB
+        fetch('/api/order/' + currentOrder.id + '/items/' + encodeURIComponent(removed.barcode), { method: 'DELETE' })
+          .catch(function (err) { console.error('Remove item error:', err); });
+        currentOrder.items.splice(i, 1);
+        renderReviewItems();
       });
     });
   }
 
-  function confirmOrphanMatch(barcode) {
-    const candidate = order.find((g) => g.barcode === barcode);
-    if (!candidate) return;
+  btnCompleteOrder.addEventListener('click', function () {
+    btnCompleteOrder.disabled = true;
+    btnCompleteOrder.textContent = 'COMPLETING...';
 
-    const newBarcode = generateBarcode();
-    const now = new Date().toLocaleDateString();
-
-    // Update the order record
-    candidate.barcode = newBarcode;
-    candidate.orphanRecovery = 'Barcode replaced during orphan recovery on ' + now;
-
-    showOrphanStep(orphanStep5);
-    orphanConfirmText.textContent = 'Orphan matched to Order #' + candidate.orderNumber + ' — ' + candidate.color + ' ' + candidate.garmentType;
-    orphanBarcodeText.textContent = newBarcode;
-  }
-
-  // ---- CAMERA SETUP ----
-
-  async function enumerateCameras() {
-    try {
-      await navigator.mediaDevices.getUserMedia({ video: true });
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter((d) => d.kind === 'videoinput');
-
-      cameraSelect.innerHTML = '';
-      videoDevices.forEach((device, i) => {
-        const option = document.createElement('option');
-        option.value = device.deviceId;
-        option.textContent = device.label || `Camera ${i + 1}`;
-        cameraSelect.appendChild(option);
+    fetch('/api/order/' + currentOrder.id + '/complete', { method: 'PATCH' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        // Show success toast
+        orderCompleteToast.classList.remove('hidden');
+        setTimeout(function () {
+          orderCompleteToast.classList.add('hidden');
+          currentOrder = null;
+          showScreen('start');
+        }, 2000);
+      })
+      .catch(function (err) {
+        alert('Error completing order: ' + err.message);
+      })
+      .finally(function () {
+        btnCompleteOrder.disabled = false;
+        btnCompleteOrder.textContent = 'COMPLETE ORDER';
       });
-
-      if (videoDevices.length > 0) {
-        cameraSelect.value = videoDevices[videoDevices.length - 1].deviceId;
-      }
-
-      return videoDevices;
-    } catch (err) {
-      console.error('Camera enumeration failed:', err);
-      statePrompt.textContent = 'Camera access denied or unavailable';
-      return [];
-    }
-  }
-
-  async function startCamera(deviceId) {
-    if (cameraFeed.srcObject) {
-      cameraFeed.srcObject.getTracks().forEach((t) => t.stop());
-    }
-
-    try {
-      const constraints = {
-        video: {
-          deviceId: deviceId ? { exact: deviceId } : undefined,
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      cameraFeed.srcObject = stream;
-      await cameraFeed.play();
-    } catch (err) {
-      console.error('Camera start failed:', err);
-      statePrompt.textContent = 'Failed to start camera';
-    }
-  }
-
-  // ---- EVENT LISTENERS ----
-
-  cameraSelect.addEventListener('change', () => {
-    startCamera(cameraSelect.value);
   });
 
-  stabilitySelect.addEventListener('change', () => {
-    stabilityWindow = parseInt(stabilitySelect.value);
-    consecutiveDetections = 0;
-    updateStabilityMeter();
+  btnSendSmrt.addEventListener('click', function () {
+    alert('Coming soon — SMRT integration will be available in a future update.');
   });
 
-  // Barcode input — Enter key triggers lookup
-  barcodeInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      barcodeLookup(barcodeInput.value);
-    }
+  btnReviewBack.addEventListener('click', function () {
+    enterGarmentScreen();
   });
 
-  btnBarcodeLookup.addEventListener('click', () => {
-    barcodeLookup(barcodeInput.value);
-  });
+  // ========================================
+  // INIT
+  // ========================================
+  showScreen('start');
 
-  btnUseExisting.addEventListener('click', useExistingGarment);
-  btnRescan.addEventListener('click', rescanGarment);
-
-  btnCaptureDamage.addEventListener('click', () => {
-    if (isProcessing) return;
-    if (cameraFeed.videoWidth === 0) return;
-    const image = captureFrame();
-    analyzeDamage(image);
-  });
-
-  btnSkipDamage.addEventListener('click', () => {
-    markGroupComplete('damage');
-    transitionTo(STATES.CARE_LABEL);
-  });
-
-  btnBack.addEventListener('click', () => {
-    stopAutoScan();
-    isProcessing = false;
-    stopProgressiveText();
-    if (currentState === STATES.DAMAGE_CAPTURE) {
-      groups.garment.classList.remove('complete');
-      transitionTo(STATES.GARMENT_SCAN);
-    } else if (currentState === STATES.CARE_LABEL) {
-      groups.damage.classList.remove('complete');
-      transitionTo(STATES.DAMAGE_CAPTURE);
-    } else if (currentState === STATES.COMPLETE) {
-      groups.care.classList.remove('complete');
-      transitionTo(STATES.CARE_LABEL);
-    }
-  });
-
-  btnAddToOrder.addEventListener('click', () => {
-    addToOrder();
-    resetForNewGarment();
-  });
-
-  btnNewGarment.addEventListener('click', () => {
-    resetForNewGarment();
-  });
-
-  // Orphan event listeners
-  btnFindOrphan.addEventListener('click', openOrphanModal);
-  btnCloseOrphan.addEventListener('click', closeOrphanModal);
-
-  orphanTypeSelect.addEventListener('change', updateCandidateCount);
-  orphanColorSelect.addEventListener('change', updateCandidateCount);
-  orphanDateRange.addEventListener('change', updateCandidateCount);
-
-  btnOrphanNext1.addEventListener('click', () => {
-    const candidates = filterCandidates();
-    if (candidates.length === 0) return;
-    showOrphanStep(orphanStep2);
-  });
-
-  btnOrphanCapture.addEventListener('click', orphanDoCapture);
-  btnOrphanRetake.addEventListener('click', orphanRetake);
-  btnOrphanSearch.addEventListener('click', orphanSearch);
-
-  btnOrphanRetry.addEventListener('click', () => {
-    showOrphanStep(orphanStep1);
-    updateCandidateCount();
-  });
-
-  btnOrphanDone.addEventListener('click', closeOrphanModal);
-
-  // ---- INIT ----
-
-  async function init() {
-    statePrompt.textContent = 'Initializing camera...';
-    populateOrphanDropdowns();
-
-    const cameras = await enumerateCameras();
-    if (cameras.length === 0) {
-      statePrompt.textContent = 'No cameras found';
-      return;
-    }
-
-    await startCamera(cameraSelect.value);
-
-    cameraFeed.addEventListener('loadeddata', () => {
-      transitionTo(STATES.GARMENT_SCAN);
-    }, { once: true });
-
-    if (cameraFeed.readyState >= 2) {
-      transitionTo(STATES.GARMENT_SCAN);
-    }
-  }
-
-  init();
 })();

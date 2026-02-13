@@ -3,269 +3,216 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Garment Intake — Dry Cleaning Check-In</title>
+  <title>Dry Cleaning Intake</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header>
-    <h1>GARMENT INTAKE</h1>
-    <div class="header-controls">
-      <button id="btnFindOrphan" class="btn-orphan">Find Orphan</button>
-      <label for="stabilitySelect">Stability:</label>
-      <select id="stabilitySelect">
-        <option value="1">Fast (0.5s)</option>
-        <option value="2" selected>Normal (1s)</option>
-        <option value="4">Careful (2s)</option>
-      </select>
-      <label for="cameraSelect">Camera:</label>
-      <select id="cameraSelect"></select>
+
+  <!-- ==================== SCREEN 1: START ==================== -->
+  <div id="screenStart" class="screen active">
+    <div class="screen-center">
+      <h1 class="app-title">DRY CLEANING INTAKE</h1>
+      <div class="btn-stack">
+        <button id="btnStartOrder" class="btn-large btn-primary">START NEW ORDER</button>
+        <button id="btnOrphan" class="btn-large btn-secondary">FIND ORPHAN GARMENT</button>
+      </div>
     </div>
-  </header>
+  </div>
 
-  <main>
-    <!-- LEFT: Camera Feed -->
-    <section class="camera-panel">
-      <div class="camera-container">
-        <video id="cameraFeed" autoplay playsinline></video>
-        <canvas id="captureCanvas" style="display:none;"></canvas>
-
-        <!-- Corner brackets overlay -->
-        <div class="bracket top-left"></div>
-        <div class="bracket top-right"></div>
-        <div class="bracket bottom-left"></div>
-        <div class="bracket bottom-right"></div>
-
-        <!-- Flash overlay -->
-        <div id="flashOverlay" class="flash-overlay"></div>
-
-        <!-- State prompt -->
-        <div id="statePrompt" class="state-prompt">
-          Initializing camera...
-        </div>
-
-        <!-- Detection indicator -->
-        <div id="detectionIndicator" class="detection-indicator"></div>
-
-        <!-- Stability meter -->
-        <div id="stabilityMeter" class="stability-meter">
-          <div id="stabilityFill" class="stability-fill"></div>
-          <span id="stabilityText" class="stability-text"></span>
-        </div>
+  <!-- ==================== SCREEN 2: CUSTOMER LOOKUP ==================== -->
+  <div id="screenCustomer" class="screen">
+    <div class="screen-center">
+      <h1 class="screen-title">NEW ORDER</h1>
+      <p class="screen-subtitle">Scan customer bag barcode:</p>
+      <div class="input-group">
+        <input type="text" id="custBarcodeInput" class="input-large" placeholder="Scan or type barcode..." autocomplete="off">
       </div>
-
-      <!-- Damage capture controls (shown in State 2 only) -->
-      <div id="damageControls" class="damage-controls hidden">
-        <button id="btnCaptureDamage" class="btn btn-damage">Capture Damage</button>
-        <button id="btnSkipDamage" class="btn btn-skip">Skip — No Damage</button>
+      <div class="btn-stack">
+        <button id="btnCustLookup" class="btn-large btn-primary">SCAN CUSTOMER BAG</button>
+        <div class="divider-or"><span>OR</span></div>
+        <button id="btnNewCustomer" class="btn-large btn-secondary">NEW CUSTOMER</button>
       </div>
-    </section>
+      <div id="custError" class="error-msg hidden"></div>
+      <button id="btnCustBack" class="btn-back">&larr; Back</button>
+    </div>
+  </div>
 
-    <!-- CENTER: Current Garment Details -->
-    <section class="details-panel">
-      <h2 id="detailsTitle">Current Garment</h2>
-
-      <!-- Barcode Lookup -->
-      <div class="barcode-row">
-        <input type="text" id="barcodeInput" class="barcode-input" placeholder="Scan or type barcode..." autocomplete="off">
-        <button id="btnBarcodeLookup" class="btn btn-barcode">Lookup</button>
-      </div>
-
-      <!-- Existing Garment Banner (shown when barcode found in DB) -->
-      <div id="existingBanner" class="existing-banner hidden">
-        <div class="existing-header">
-          <span class="existing-badge">RETURNING GARMENT</span>
-          <span id="existingLastDate" class="existing-date"></span>
+  <!-- ==================== SCREEN 2b: NEW CUSTOMER ==================== -->
+  <div id="screenNewCustomer" class="screen">
+    <div class="screen-center">
+      <h1 class="screen-title">NEW CUSTOMER</h1>
+      <div class="info-badge" id="newCustBarcode">Generating barcode...</div>
+      <div class="form-stack">
+        <div class="form-field">
+          <label for="custName">Customer Name *</label>
+          <input type="text" id="custName" class="input-large" placeholder="Full name" autocomplete="off">
         </div>
-        <div id="existingPhotos" class="existing-photos"></div>
-        <div class="existing-actions">
-          <button id="btnUseExisting" class="btn btn-confirm">Use Record — Skip to Order</button>
-          <button id="btnRescan" class="btn btn-skip">Re-scan Garment</button>
+        <div class="form-field">
+          <label for="custPhone">Phone Number</label>
+          <input type="tel" id="custPhone" class="input-large" placeholder="(optional)" autocomplete="off">
+        </div>
+        <div class="form-field">
+          <label for="custEmail">Email</label>
+          <input type="email" id="custEmail" class="input-large" placeholder="(optional)" autocomplete="off">
         </div>
       </div>
+      <div class="btn-stack">
+        <button id="btnCreateCustomer" class="btn-large btn-primary">CREATE CUSTOMER</button>
+      </div>
+      <div id="newCustError" class="error-msg hidden"></div>
+      <button id="btnNewCustBack" class="btn-back">&larr; Back</button>
+    </div>
+  </div>
 
-      <div class="state-nav">
-        <button id="btnBack" class="btn btn-back hidden" title="Go back">&#8592; Back</button>
-        <div id="stateIndicator" class="state-indicator">
-          <span class="state-dot" data-state="1"></span>
-          <span class="state-label">Scan</span>
-          <span class="state-line"></span>
-          <span class="state-dot" data-state="2"></span>
-          <span class="state-label">Damage</span>
-          <span class="state-line"></span>
-          <span class="state-dot" data-state="3"></span>
-          <span class="state-label">Label</span>
-          <span class="state-line"></span>
-          <span class="state-dot" data-state="4"></span>
-          <span class="state-label">Done</span>
+  <!-- ==================== SCREEN 3: GARMENT ENTRY ==================== -->
+  <div id="screenGarmentEntry" class="screen">
+    <div class="screen-wide">
+      <div class="order-header">
+        <div class="order-header-left">
+          <h1 id="orderNumber" class="order-number">ORDER</h1>
+          <span id="orderCustomer" class="order-customer"></span>
         </div>
+        <span id="orderItemCount" class="order-item-count">Items: 0</span>
+      </div>
+      <p class="screen-subtitle">Scan garment barcode:</p>
+      <div class="input-group">
+        <input type="text" id="garmentBarcodeInput" class="input-large" placeholder="Scan or type barcode..." autocomplete="off">
+      </div>
+      <div class="btn-row">
+        <button id="btnScanGarment" class="btn-large btn-primary">SCAN GARMENT</button>
+        <button id="btnNewGarment" class="btn-large btn-secondary">NEW GARMENT</button>
+      </div>
+      <div id="garmentError" class="error-msg hidden"></div>
+
+      <div id="orderItemsList" class="items-list">
+        <p class="items-placeholder">No garments added yet</p>
       </div>
 
-      <div class="fields-scroll">
-        <!-- Garment Info -->
-        <fieldset class="field-group" id="groupGarment">
-          <legend>Garment Info</legend>
-          <div class="field-row">
-            <label for="fieldType">Type</label>
-            <input type="text" id="fieldType" placeholder="Waiting for scan...">
-          </div>
-          <div class="field-row">
-            <label for="fieldColor">Color</label>
-            <input type="text" id="fieldColor" placeholder="Waiting for scan...">
-          </div>
-          <div class="field-row">
-            <label for="fieldBrand">Brand</label>
-            <input type="text" id="fieldBrand" placeholder="Waiting for scan...">
-          </div>
-        </fieldset>
-
-        <!-- Damage -->
-        <fieldset class="field-group" id="groupDamage">
-          <legend>Damage</legend>
-          <div id="damageList" class="damage-list">
-            <p class="placeholder-text">No damage recorded</p>
-          </div>
-        </fieldset>
-
-        <!-- Care Instructions -->
-        <fieldset class="field-group" id="groupCare">
-          <legend>Care Instructions</legend>
-          <div class="field-row">
-            <label for="fieldFiber">Fiber Content</label>
-            <input type="text" id="fieldFiber" placeholder="Waiting for label scan...">
-          </div>
-          <div class="field-row">
-            <label for="fieldDryClean">Dry Clean</label>
-            <input type="text" id="fieldDryClean" placeholder="Waiting for label scan...">
-          </div>
-          <div class="field-row">
-            <label for="fieldWashing">Washing</label>
-            <input type="text" id="fieldWashing" placeholder="Waiting for label scan...">
-          </div>
-          <div class="field-row">
-            <label for="fieldDrying">Drying</label>
-            <input type="text" id="fieldDrying" placeholder="Waiting for label scan...">
-          </div>
-          <div class="field-row">
-            <label for="fieldIroning">Ironing</label>
-            <input type="text" id="fieldIroning" placeholder="Waiting for label scan...">
-          </div>
-          <div class="field-row">
-            <label for="fieldBleaching">Bleaching</label>
-            <input type="text" id="fieldBleaching" placeholder="Waiting for label scan...">
-          </div>
-        </fieldset>
-
-        <!-- Customer Preferences -->
-        <fieldset class="field-group" id="groupPrefs">
-          <legend>Customer Preferences</legend>
-          <div class="field-row">
-            <label for="fieldPrefs">Notes</label>
-            <textarea id="fieldPrefs" rows="2" placeholder="e.g., light starch, no fold"></textarea>
-          </div>
-        </fieldset>
+      <div class="btn-stack">
+        <button id="btnFinishOrder" class="btn-large btn-success hidden">FINISH ORDER</button>
       </div>
+      <button id="btnGarmentBack" class="btn-back">&larr; Back to customer entry</button>
+    </div>
+  </div>
 
-      <!-- Complete state buttons -->
-      <div id="completeControls" class="complete-controls hidden">
-        <button id="btnAddToOrder" class="btn btn-confirm">Add to Order</button>
-        <button id="btnNewGarment" class="btn btn-new">New Garment</button>
+  <!-- ==================== SCREEN 3b: EXISTING GARMENT FOUND ==================== -->
+  <div id="screenExistingGarment" class="screen">
+    <div class="screen-center">
+      <div class="found-badge">&#10003; GARMENT FOUND IN DATABASE</div>
+      <div id="existBarcode" class="info-badge"></div>
+      <div id="existDetails" class="garment-details-card"></div>
+      <div id="existPhotos" class="exist-photos"></div>
+      <div class="btn-stack">
+        <button id="btnAddExisting" class="btn-large btn-primary">ADD TO ORDER</button>
+        <button id="btnRescanExisting" class="btn-large btn-secondary">RE-SCAN (Update Info)</button>
       </div>
-    </section>
+      <button id="btnExistBack" class="btn-back">&larr; Back to barcode entry</button>
+    </div>
+  </div>
 
-    <!-- RIGHT: Order List -->
-    <section class="order-panel">
-      <h2>Order <span id="orderCount">(0 items)</span></h2>
-      <div id="orderList" class="order-list">
-        <p class="placeholder-text" id="orderPlaceholder">No garments added yet. Start scanning to build the order.</p>
+  <!-- ==================== SCREEN 4: CAMERA CAPTURE ==================== -->
+  <div id="screenCamera" class="screen">
+    <div class="camera-header">
+      <div class="camera-header-left">
+        <span id="cameraOrderNum" class="camera-meta"></span>
+        <span id="cameraGarmentBarcode" class="camera-meta highlight"></span>
       </div>
-    </section>
-  </main>
-
-  <!-- Orphan Recovery Modal -->
-  <div id="orphanModal" class="orphan-modal hidden">
-    <div class="orphan-content">
-      <div class="orphan-header">
-        <h2>FIND ORPHAN GARMENT</h2>
-        <button id="btnCloseOrphan" class="orphan-close">&times;</button>
+      <div class="camera-header-right">
+        <label for="stabilitySelect">Stability:</label>
+        <select id="stabilitySelect">
+          <option value="1">Fast</option>
+          <option value="2" selected>Normal</option>
+          <option value="4">Careful</option>
+        </select>
+        <label for="cameraSelect">Camera:</label>
+        <select id="cameraSelect"></select>
       </div>
-
-      <!-- Step 1: Filters -->
-      <div id="orphanStep1" class="orphan-step">
-        <h3>Step 1: Filter by characteristics</h3>
-        <div class="orphan-form">
-          <div class="field-row">
-            <label for="orphanType">Type</label>
-            <select id="orphanType"><option value="">Any type</option></select>
-          </div>
-          <div class="field-row">
-            <label for="orphanColor">Color</label>
-            <select id="orphanColor"><option value="">Any color</option></select>
-          </div>
-          <div class="field-row">
-            <label for="orphanDateRange">Date Range</label>
-            <select id="orphanDateRange">
-              <option value="3">Last 3 days</option>
-              <option value="7" selected>Last 7 days</option>
-              <option value="14">Last 14 days</option>
-              <option value="30">Last 30 days</option>
-            </select>
+    </div>
+    <div class="camera-layout">
+      <div class="camera-panel">
+        <div class="camera-container">
+          <video id="cameraFeed" autoplay playsinline></video>
+          <canvas id="captureCanvas" style="display:none;"></canvas>
+          <div class="bracket top-left"></div>
+          <div class="bracket top-right"></div>
+          <div class="bracket bottom-left"></div>
+          <div class="bracket bottom-right"></div>
+          <div id="flashOverlay" class="flash-overlay"></div>
+          <div id="statePrompt" class="state-prompt">Initializing camera...</div>
+          <div id="detectionIndicator" class="detection-indicator"></div>
+          <div id="stabilityMeter" class="stability-meter">
+            <div id="stabilityFill" class="stability-fill"></div>
+            <span id="stabilityText" class="stability-text"></span>
           </div>
         </div>
-        <p id="orphanCandidateCount" class="orphan-info"></p>
-        <div class="orphan-actions">
-          <button id="btnOrphanNext1" class="btn btn-confirm">Next: Capture Photo</button>
+        <div id="damageControls" class="damage-controls hidden">
+          <button id="btnCaptureDamage" class="btn btn-damage">Capture Damage</button>
+          <button id="btnSkipDamage" class="btn btn-skip">Skip — No Damage</button>
         </div>
       </div>
-
-      <!-- Step 2: Capture -->
-      <div id="orphanStep2" class="orphan-step hidden">
-        <h3>Step 2: Photograph the orphan garment</h3>
-        <div class="orphan-camera-wrap">
-          <video id="orphanVideo" autoplay playsinline></video>
+      <div class="capture-details">
+        <div class="state-nav">
+          <button id="btnCameraBack" class="btn btn-back-sm" title="Go back">&larr;</button>
+          <div class="state-indicator">
+            <span class="state-dot" data-state="1"></span>
+            <span class="state-label">Scan</span>
+            <span class="state-line"></span>
+            <span class="state-dot" data-state="2"></span>
+            <span class="state-label">Damage</span>
+            <span class="state-line"></span>
+            <span class="state-dot" data-state="3"></span>
+            <span class="state-label">Label</span>
+            <span class="state-line"></span>
+            <span class="state-dot" data-state="4"></span>
+            <span class="state-label">Done</span>
+          </div>
         </div>
-        <div id="orphanPreview" class="orphan-preview hidden">
-          <img id="orphanPreviewImg" alt="Captured orphan photo">
+        <div class="fields-scroll">
+          <fieldset class="field-group" id="groupGarment">
+            <legend>Garment Info</legend>
+            <div class="field-row"><label>Type</label><input type="text" id="fieldType" placeholder="Waiting for scan..."></div>
+            <div class="field-row"><label>Color</label><input type="text" id="fieldColor" placeholder="Waiting for scan..."></div>
+            <div class="field-row"><label>Brand</label><input type="text" id="fieldBrand" placeholder="Waiting for scan..."></div>
+          </fieldset>
+          <fieldset class="field-group" id="groupDamage">
+            <legend>Damage</legend>
+            <div id="damageList" class="damage-list"><p class="placeholder-text">No damage recorded</p></div>
+          </fieldset>
+          <fieldset class="field-group" id="groupCare">
+            <legend>Care Instructions</legend>
+            <div class="field-row"><label>Fiber</label><input type="text" id="fieldFiber" placeholder="Waiting for label scan..."></div>
+            <div class="field-row"><label>Dry Clean</label><input type="text" id="fieldDryClean" placeholder="Waiting for label scan..."></div>
+            <div class="field-row"><label>Washing</label><input type="text" id="fieldWashing" placeholder="Waiting for label scan..."></div>
+            <div class="field-row"><label>Drying</label><input type="text" id="fieldDrying" placeholder="Waiting for label scan..."></div>
+            <div class="field-row"><label>Ironing</label><input type="text" id="fieldIroning" placeholder="Waiting for label scan..."></div>
+            <div class="field-row"><label>Bleaching</label><input type="text" id="fieldBleaching" placeholder="Waiting for label scan..."></div>
+          </fieldset>
         </div>
-        <canvas id="orphanCanvas" style="display:none;"></canvas>
-        <div class="orphan-actions">
-          <button id="btnOrphanCapture" class="btn btn-damage">Capture Photo</button>
-          <button id="btnOrphanRetake" class="btn btn-skip hidden">Retake</button>
-          <button id="btnOrphanSearch" class="btn btn-confirm hidden">Search for Matches</button>
-        </div>
-      </div>
-
-      <!-- Step 3: Searching -->
-      <div id="orphanStep3" class="orphan-step hidden">
-        <div class="orphan-searching">
-          <span class="spinner large"></span>
-          <p id="orphanSearchText">Analyzing and comparing garments...</p>
-        </div>
-      </div>
-
-      <!-- Step 4: Results -->
-      <div id="orphanStep4" class="orphan-step hidden">
-        <h3>Match Results</h3>
-        <div id="orphanWarning" class="orphan-warning hidden"></div>
-        <div id="orphanResults" class="orphan-results"></div>
-        <div class="orphan-actions">
-          <button id="btnOrphanRetry" class="btn btn-skip">Try Different Filters</button>
-        </div>
-      </div>
-
-      <!-- Step 5: Confirmation -->
-      <div id="orphanStep5" class="orphan-step hidden">
-        <div class="orphan-confirmed">
-          <div class="confirmed-check">&#10003;</div>
-          <h3>Orphan Matched Successfully</h3>
-          <p id="orphanConfirmText"></p>
-          <p id="orphanBarcodeText" class="barcode-text"></p>
-          <p class="barcode-instruction">Print barcode and apply to garment</p>
-        </div>
-        <div class="orphan-actions">
-          <button id="btnOrphanDone" class="btn btn-confirm">Done — Return to Intake</button>
+        <div id="captureConfirm" class="capture-confirm hidden">
+          <button id="btnConfirmAdd" class="btn-large btn-primary">CONFIRM &amp; ADD</button>
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- ==================== SCREEN 5: ORDER REVIEW ==================== -->
+  <div id="screenReview" class="screen">
+    <div class="screen-center">
+      <h1 class="screen-title">ORDER REVIEW</h1>
+      <div id="reviewOrderInfo" class="review-order-info"></div>
+      <div id="reviewItemsList" class="review-items"></div>
+      <div class="btn-stack">
+        <button id="btnSendSmrt" class="btn-large btn-secondary" disabled>SEND TO SMRT (Coming Soon)</button>
+        <button id="btnCompleteOrder" class="btn-large btn-success">COMPLETE ORDER</button>
+      </div>
+      <button id="btnReviewBack" class="btn-back">&larr; Back to add more items</button>
+    </div>
+  </div>
+
+  <!-- ==================== ORDER COMPLETE TOAST ==================== -->
+  <div id="orderCompleteToast" class="toast hidden">
+    <div class="toast-check">&#10003;</div>
+    <div class="toast-text">Order complete!</div>
   </div>
 
   <script src="app.js"></script>

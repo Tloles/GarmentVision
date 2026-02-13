@@ -778,6 +778,221 @@ Rank all candidates by confidence. If no candidates are strong matches (all conf
   }
 });
 
+// ---- CUSTOMER ENDPOINTS ----
+
+// Get next customer barcode
+app.get('/api/customer/next-barcode', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  try {
+    const { data } = await supabase
+      .from('customers')
+      .select('customer_barcode')
+      .order('customer_barcode', { ascending: false })
+      .limit(1);
+    let nextNum = 1;
+    if (data && data.length > 0) {
+      const num = parseInt(data[0].customer_barcode.replace('CUST-', ''));
+      if (!isNaN(num)) nextNum = num + 1;
+    }
+    res.json({ barcode: 'CUST-' + String(nextNum).padStart(5, '0') });
+  } catch (err) {
+    console.error('Next customer barcode error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Look up customer by barcode
+app.get('/api/customer/:barcode', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured', found: false });
+  try {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('customer_barcode', req.params.barcode)
+      .maybeSingle();
+    if (error) return res.status(500).json({ error: error.message, found: false });
+    if (!data) return res.json({ found: false });
+    res.json({ found: true, customer: data });
+  } catch (err) {
+    console.error('Customer lookup error:', err.message);
+    res.status(500).json({ error: err.message, found: false });
+  }
+});
+
+// Create customer
+app.post('/api/customer', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  try {
+    const { customer_barcode, name, phone, email } = req.body;
+    if (!customer_barcode || !name) {
+      return res.status(400).json({ error: 'Barcode and name are required' });
+    }
+    const { data, error } = await supabase
+      .from('customers')
+      .insert({ customer_barcode, name, phone: phone || null, email: email || null })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true, customer: data });
+  } catch (err) {
+    console.error('Create customer error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- ORDER ENDPOINTS ----
+
+// Create order
+app.post('/api/order', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  try {
+    const { customer_barcode } = req.body;
+    // Generate order number: ORD-YYYYMMDD-XXX
+    const now = new Date();
+    const dateStr = now.getFullYear().toString() +
+      String(now.getMonth() + 1).padStart(2, '0') +
+      String(now.getDate()).padStart(2, '0');
+    const prefix = 'ORD-' + dateStr + '-';
+
+    // Get today's order count
+    const { data: todayOrders } = await supabase
+      .from('orders')
+      .select('order_number')
+      .like('order_number', prefix + '%');
+    const seq = (todayOrders ? todayOrders.length : 0) + 1;
+    const orderNumber = prefix + String(seq).padStart(3, '0');
+
+    const { data, error } = await supabase
+      .from('orders')
+      .insert({
+        order_number: orderNumber,
+        customer_barcode: customer_barcode || null,
+        status: 'open',
+      })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true, order: data });
+  } catch (err) {
+    console.error('Create order error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get order with items
+app.get('/api/order/:id', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  try {
+    const { data: order, error: orderErr } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+    if (orderErr) return res.status(500).json({ error: orderErr.message });
+
+    const { data: items, error: itemsErr } = await supabase
+      .from('order_items')
+      .select('*, garments(*)')
+      .eq('order_id', req.params.id);
+    if (itemsErr) return res.status(500).json({ error: itemsErr.message });
+
+    res.json({ order, items: items || [] });
+  } catch (err) {
+    console.error('Get order error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add item to order
+app.post('/api/order/:id/items', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  try {
+    const { garment_barcode } = req.body;
+    if (!garment_barcode) return res.status(400).json({ error: 'garment_barcode required' });
+
+    // Look up garment id
+    const { data: garment } = await supabase
+      .from('garments')
+      .select('id')
+      .eq('barcode', garment_barcode)
+      .maybeSingle();
+
+    const { data, error } = await supabase
+      .from('order_items')
+      .insert({
+        order_id: parseInt(req.params.id),
+        garment_barcode,
+        garment_id: garment ? garment.id : null,
+      })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true, item: data });
+  } catch (err) {
+    console.error('Add order item error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Remove item from order
+app.delete('/api/order/:id/items/:barcode', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  try {
+    const { error } = await supabase
+      .from('order_items')
+      .delete()
+      .eq('order_id', parseInt(req.params.id))
+      .eq('garment_barcode', req.params.barcode);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Remove order item error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Complete order
+app.patch('/api/order/:id/complete', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('id', parseInt(req.params.id))
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true, order: data });
+  } catch (err) {
+    console.error('Complete order error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- GARMENT ENDPOINTS ----
+
+// Get next garment barcode (must be before /api/garment/:barcode)
+app.get('/api/garment/next-barcode', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  try {
+    const { data } = await supabase
+      .from('garments')
+      .select('barcode')
+      .like('barcode', 'GARM-%')
+      .order('barcode', { ascending: false })
+      .limit(1);
+    let nextNum = 1;
+    if (data && data.length > 0) {
+      const num = parseInt(data[0].barcode.replace('GARM-', ''));
+      if (!isNaN(num)) nextNum = num + 1;
+    }
+    res.json({ barcode: 'GARM-' + String(nextNum).padStart(5, '0') });
+  } catch (err) {
+    console.error('Next garment barcode error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ---- SUPABASE ENDPOINTS ----
 
 // Barcode lookup — check if garment exists in database
