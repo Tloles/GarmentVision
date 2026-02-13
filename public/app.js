@@ -38,7 +38,9 @@
   let scanInterval = null;
   let processingTextInterval = null;
   let lastGarmentPhoto = null;
+  let lastLabelPhoto = null;
   let orderCounter = 0;
+  let existingDbGarment = null; // Garment loaded from Supabase
 
   // Current garment data
   let currentGarment = createEmptyGarment();
@@ -69,6 +71,15 @@
   const stabilityFill = document.getElementById('stabilityFill');
   const stabilityText = document.getElementById('stabilityText');
   const stabilitySelect = document.getElementById('stabilitySelect');
+
+  // Barcode / DB refs
+  const barcodeInput = document.getElementById('barcodeInput');
+  const btnBarcodeLookup = document.getElementById('btnBarcodeLookup');
+  const existingBanner = document.getElementById('existingBanner');
+  const existingLastDate = document.getElementById('existingLastDate');
+  const existingPhotos = document.getElementById('existingPhotos');
+  const btnUseExisting = document.getElementById('btnUseExisting');
+  const btnRescan = document.getElementById('btnRescan');
 
   // Orphan modal refs
   const btnFindOrphan = document.getElementById('btnFindOrphan');
@@ -479,6 +490,7 @@
       lastGarmentPhoto = image;
       await analyzeGarment(image);
     } else if (currentState === STATES.CARE_LABEL) {
+      lastLabelPhoto = image;
       await analyzeLabel(image);
     }
   }
@@ -637,12 +649,16 @@
     orderCounter++;
     currentGarment.intakePhoto = lastGarmentPhoto || '';
     currentGarment.orderNumber = orderCounter;
-    currentGarment.barcode = generateBarcode();
+    // Use existing barcode if loaded from DB, otherwise generate new
+    currentGarment.barcode = existingDbGarment ? existingDbGarment.barcode : generateBarcode();
     currentGarment.checkInDate = new Date();
 
     order.push({ ...currentGarment });
     renderOrderCard(currentGarment, order.length);
     updateOrderCount();
+
+    // Save to database in background
+    saveGarmentToDatabase(currentGarment);
   }
 
   function renderOrderCard(garment, index) {
@@ -684,9 +700,188 @@
   function resetForNewGarment() {
     currentGarment = createEmptyGarment();
     lastGarmentPhoto = null;
+    lastLabelPhoto = null;
+    existingDbGarment = null;
+    existingBanner.classList.add('hidden');
+    barcodeInput.value = '';
     clearAllFields();
     resetGroups();
     transitionTo(STATES.GARMENT_SCAN);
+  }
+
+  // ---- SUPABASE / BARCODE LOOKUP ----
+
+  async function barcodeLookup(barcode) {
+    if (!barcode || barcode.trim().length === 0) return;
+    barcode = barcode.trim();
+
+    barcodeInput.disabled = true;
+    btnBarcodeLookup.disabled = true;
+    btnBarcodeLookup.textContent = '...';
+
+    try {
+      const resp = await fetch('/api/garment/' + encodeURIComponent(barcode));
+      const data = await resp.json();
+
+      if (data.found && data.garment) {
+        displayExistingGarment(data.garment);
+      } else if (data.error && data.error.includes('not configured')) {
+        // Supabase not configured — silently continue with camera workflow
+        console.log('Database not configured, continuing with camera flow');
+      } else {
+        // Not found — continue with normal workflow
+        statePrompt.textContent = 'New garment — place in frame';
+        existingBanner.classList.add('hidden');
+      }
+    } catch (err) {
+      console.error('Barcode lookup error:', err);
+      // Network error — continue with camera workflow
+    } finally {
+      barcodeInput.disabled = false;
+      btnBarcodeLookup.disabled = false;
+      btnBarcodeLookup.textContent = 'Lookup';
+    }
+  }
+
+  function displayExistingGarment(garment) {
+    existingDbGarment = garment;
+
+    // Stop auto-scan while showing existing record
+    stopAutoScan();
+    hideStabilityMeter();
+
+    // Populate all fields from database record
+    setFieldValue(fields.type, garment.garment_type);
+    setFieldValue(fields.color, garment.color);
+    setFieldValue(fields.brand, garment.brand);
+    setFieldValue(fields.fiber, garment.fiber_content);
+    setFieldValue(fields.dryClean, garment.care_dry_clean);
+    setFieldValue(fields.washing, garment.care_washing);
+    setFieldValue(fields.drying, garment.care_drying);
+    setFieldValue(fields.ironing, garment.care_ironing);
+    setFieldValue(fields.bleaching, garment.care_bleaching);
+
+    // Show last checked in date
+    if (garment.last_checked_in) {
+      const date = new Date(garment.last_checked_in);
+      existingLastDate.textContent = 'Last checked in: ' + date.toLocaleDateString();
+    } else {
+      existingLastDate.textContent = '';
+    }
+
+    // Show photo thumbnails
+    existingPhotos.innerHTML = '';
+    if (garment.photo_front_url) {
+      const img = document.createElement('img');
+      img.src = garment.photo_front_url;
+      img.alt = 'Front photo';
+      existingPhotos.appendChild(img);
+    }
+    if (garment.photo_label_url) {
+      const img = document.createElement('img');
+      img.src = garment.photo_label_url;
+      img.alt = 'Label photo';
+      existingPhotos.appendChild(img);
+    }
+
+    // Show the banner
+    existingBanner.classList.remove('hidden');
+    statePrompt.textContent = 'Returning garment found in database';
+    setBracketState('captured');
+    setDetectionText('');
+
+    // Update barcode input to show the matched barcode
+    barcodeInput.value = garment.barcode;
+  }
+
+  function useExistingGarment() {
+    if (!existingDbGarment) return;
+
+    // Mark all groups as complete
+    markGroupComplete('garment');
+    markGroupComplete('damage');
+    markGroupComplete('care');
+
+    // Transition directly to COMPLETE state
+    existingBanner.classList.add('hidden');
+    transitionTo(STATES.COMPLETE);
+  }
+
+  function rescanGarment() {
+    existingDbGarment = null;
+    existingBanner.classList.add('hidden');
+    clearAllFields();
+    resetGroups();
+    transitionTo(STATES.GARMENT_SCAN);
+  }
+
+  async function saveGarmentToDatabase(garment) {
+    try {
+      const payload = {
+        barcode: garment.barcode,
+        garmentType: garment.garmentType,
+        color: garment.color,
+        brand: garment.brand,
+        fiberContent: garment.fiberContent,
+        careDryClean: garment.dryClean,
+        careWashing: garment.washing,
+        careDrying: garment.drying,
+        careIroning: garment.ironing,
+        careBleaching: garment.bleaching,
+        damageNotes: garment.damages.length > 0
+          ? garment.damages.map(function(d) { return d.severity + ' ' + d.type + (d.location ? ' at ' + d.location : ''); }).join('; ')
+          : null,
+        photos: {},
+      };
+
+      // Attach photos if available
+      if (lastGarmentPhoto) {
+        payload.photos.front = lastGarmentPhoto;
+      }
+      if (lastLabelPhoto) {
+        payload.photos.label = lastLabelPhoto;
+      }
+
+      const resp = await fetch('/api/garment/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await resp.json();
+
+      if (resp.ok && result.success) {
+        console.log('Garment saved to database:', garment.barcode);
+        showSaveStatus('saved', 'Saved to database');
+      } else {
+        console.error('Save failed:', result.error);
+        showSaveStatus('save-error', result.error || 'Save failed');
+      }
+    } catch (err) {
+      console.error('Database save error:', err);
+      showSaveStatus('save-error', 'Could not reach database');
+    }
+  }
+
+  function showSaveStatus(type, message) {
+    // Find the last order card and append status
+    const cards = orderList.querySelectorAll('.order-card');
+    if (cards.length === 0) return;
+    const lastCard = cards[cards.length - 1];
+
+    // Remove any existing status
+    const existing = lastCard.querySelector('.save-status');
+    if (existing) existing.remove();
+
+    const status = document.createElement('div');
+    status.className = 'save-status ' + type;
+    status.textContent = message;
+    lastCard.appendChild(status);
+
+    // Auto-hide success after 3 seconds
+    if (type === 'saved') {
+      setTimeout(function() { status.remove(); }, 3000);
+    }
   }
 
   // ---- ORPHAN RECOVERY ----
@@ -983,6 +1178,21 @@
     consecutiveDetections = 0;
     updateStabilityMeter();
   });
+
+  // Barcode input — Enter key triggers lookup
+  barcodeInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      barcodeLookup(barcodeInput.value);
+    }
+  });
+
+  btnBarcodeLookup.addEventListener('click', () => {
+    barcodeLookup(barcodeInput.value);
+  });
+
+  btnUseExisting.addEventListener('click', useExistingGarment);
+  btnRescan.addEventListener('click', rescanGarment);
 
   btnCaptureDamage.addEventListener('click', () => {
     if (isProcessing) return;

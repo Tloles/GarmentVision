@@ -1065,6 +1065,136 @@ main {
   color: var(--text-muted);
 }
 
+/* ---- BARCODE INPUT ---- */
+.barcode-row {
+  display: flex;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.barcode-input {
+  flex: 1;
+  background: var(--bg-field);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+
+.barcode-input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.btn-barcode {
+  background: var(--navy);
+  color: #ffffff;
+  border: 1px solid var(--navy);
+  padding: 6px 14px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+.btn-barcode:hover {
+  background: var(--navy-light);
+}
+
+/* ---- EXISTING GARMENT BANNER ---- */
+.existing-banner {
+  padding: 12px 16px;
+  border-bottom: 2px solid var(--accent-green);
+  background: rgba(22, 163, 74, 0.06);
+}
+
+.existing-banner.hidden {
+  display: none;
+}
+
+.existing-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.existing-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: var(--accent-green);
+  padding: 3px 8px;
+  border-radius: 3px;
+}
+
+.existing-date {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.existing-photos {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.existing-photos img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.existing-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.existing-actions .btn {
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 11px;
+}
+
+/* ---- DB SAVE STATUS ---- */
+.save-status {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 3px;
+  margin-top: 6px;
+  text-align: center;
+}
+
+.save-status.saving {
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+}
+
+.save-status.saved {
+  color: var(--accent-green);
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.save-status.save-error {
+  color: var(--accent-red);
+  background: rgba(220, 38, 38, 0.08);
+}
+
 /* ---- MEDIA QUERIES ---- */
 @media (max-width: 1100px) {
   main {

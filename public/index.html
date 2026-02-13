@@ -63,6 +63,26 @@
     <!-- CENTER: Current Garment Details -->
     <section class="details-panel">
       <h2 id="detailsTitle">Current Garment</h2>
+
+      <!-- Barcode Lookup -->
+      <div class="barcode-row">
+        <input type="text" id="barcodeInput" class="barcode-input" placeholder="Scan or type barcode..." autocomplete="off">
+        <button id="btnBarcodeLookup" class="btn btn-barcode">Lookup</button>
+      </div>
+
+      <!-- Existing Garment Banner (shown when barcode found in DB) -->
+      <div id="existingBanner" class="existing-banner hidden">
+        <div class="existing-header">
+          <span class="existing-badge">RETURNING GARMENT</span>
+          <span id="existingLastDate" class="existing-date"></span>
+        </div>
+        <div id="existingPhotos" class="existing-photos"></div>
+        <div class="existing-actions">
+          <button id="btnUseExisting" class="btn btn-confirm">Use Record — Skip to Order</button>
+          <button id="btnRescan" class="btn btn-skip">Re-scan Garment</button>
+        </div>
+      </div>
+
       <div class="state-nav">
         <button id="btnBack" class="btn btn-back hidden" title="Go back">&#8592; Back</button>
         <div id="stateIndicator" class="state-indicator">

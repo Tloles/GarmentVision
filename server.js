@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
+const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 
 const app = express();
@@ -12,6 +13,15 @@ app.use(express.static(path.join(__dirname, 'public')));
 const anthropic = new Anthropic.default({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
+
+// Supabase client (optional — features degrade gracefully if not configured)
+let supabase = null;
+if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
+  supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  console.log('Supabase connected:', process.env.SUPABASE_URL);
+} else {
+  console.log('Supabase not configured — running without database (add SUPABASE_URL and SUPABASE_SERVICE_KEY to .env)');
+}
 
 // Detection endpoint — lightweight check: is there a garment or label in frame?
 app.post('/api/detect', async (req, res) => {
@@ -765,6 +775,149 @@ Rank all candidates by confidence. If no candidates are strong matches (all conf
                    err.status === 429 ? 'Rate limited — slow down' :
                    err.message || 'Unknown error';
     res.status(500).json({ error: `Orphan matching failed: ${detail}` });
+  }
+});
+
+// ---- SUPABASE ENDPOINTS ----
+
+// Barcode lookup — check if garment exists in database
+app.get('/api/garment/:barcode', async (req, res) => {
+  const { barcode } = req.params;
+  if (!barcode) {
+    return res.status(400).json({ error: 'No barcode provided' });
+  }
+
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database not configured', found: false });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('garments')
+      .select('*')
+      .eq('barcode', barcode)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Barcode lookup error:', error.message);
+      return res.status(500).json({ error: 'Database query failed: ' + error.message, found: false });
+    }
+
+    if (!data) {
+      return res.json({ found: false });
+    }
+
+    res.json({ found: true, garment: data });
+  } catch (err) {
+    console.error('Barcode lookup error:', err.message);
+    res.status(500).json({ error: 'Barcode lookup failed: ' + err.message, found: false });
+  }
+});
+
+// Save garment to database with photo upload
+app.post('/api/garment/save', async (req, res) => {
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database not configured' });
+  }
+
+  try {
+    const {
+      barcode, garmentType, color, brand, fiberContent,
+      careDryClean, careWashing, careDrying, careIroning, careBleaching,
+      damageNotes, photos,
+    } = req.body;
+
+    if (!barcode) {
+      return res.status(400).json({ error: 'No barcode provided' });
+    }
+
+    // Upload photos to storage bucket
+    let photoFrontUrl = null;
+    let photoLabelUrl = null;
+
+    if (photos) {
+      if (photos.front) {
+        try {
+          const frontBuffer = Buffer.from(photos.front, 'base64');
+          const frontPath = `${barcode}/front.jpg`;
+          const { error: uploadErr } = await supabase.storage
+            .from('garment-photos')
+            .upload(frontPath, frontBuffer, {
+              contentType: 'image/jpeg',
+              upsert: true,
+            });
+
+          if (uploadErr) {
+            console.error('Front photo upload error:', uploadErr.message);
+          } else {
+            const { data: urlData } = supabase.storage
+              .from('garment-photos')
+              .getPublicUrl(frontPath);
+            photoFrontUrl = urlData.publicUrl;
+          }
+        } catch (photoErr) {
+          console.error('Front photo upload failed:', photoErr.message);
+        }
+      }
+
+      if (photos.label) {
+        try {
+          const labelBuffer = Buffer.from(photos.label, 'base64');
+          const labelPath = `${barcode}/label.jpg`;
+          const { error: uploadErr } = await supabase.storage
+            .from('garment-photos')
+            .upload(labelPath, labelBuffer, {
+              contentType: 'image/jpeg',
+              upsert: true,
+            });
+
+          if (uploadErr) {
+            console.error('Label photo upload error:', uploadErr.message);
+          } else {
+            const { data: urlData } = supabase.storage
+              .from('garment-photos')
+              .getPublicUrl(labelPath);
+            photoLabelUrl = urlData.publicUrl;
+          }
+        } catch (photoErr) {
+          console.error('Label photo upload failed:', photoErr.message);
+        }
+      }
+    }
+
+    // Upsert garment record
+    const garmentRecord = {
+      barcode,
+      garment_type: garmentType || null,
+      color: color || null,
+      brand: brand || null,
+      fiber_content: fiberContent || null,
+      care_dry_clean: careDryClean || null,
+      care_washing: careWashing || null,
+      care_drying: careDrying || null,
+      care_ironing: careIroning || null,
+      care_bleaching: careBleaching || null,
+      damage_notes: damageNotes || null,
+      photo_front_url: photoFrontUrl,
+      photo_label_url: photoLabelUrl,
+      last_checked_in: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('garments')
+      .upsert(garmentRecord, { onConflict: 'barcode' })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Garment save error:', error.message);
+      return res.status(500).json({ error: 'Failed to save garment: ' + error.message });
+    }
+
+    res.json({ success: true, garment: data, photosMissing: !photoFrontUrl && photos?.front ? true : false });
+  } catch (err) {
+    console.error('Garment save error:', err.message);
+    res.status(500).json({ error: 'Garment save failed: ' + err.message });
   }
 });
 
