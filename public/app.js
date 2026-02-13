@@ -32,7 +32,8 @@
   };
 
   let currentState = STATES.GARMENT_SCAN;
-  let stabilityScore = 0;
+  let consecutiveDetections = 0;
+  let stabilityWindow = 2; // Number of consecutive 'ready' checks needed (default: 2 = 1s at 500ms interval)
   let isProcessing = false;
   let scanInterval = null;
   let processingTextInterval = null;
@@ -67,6 +68,7 @@
   const stabilityMeter = document.getElementById('stabilityMeter');
   const stabilityFill = document.getElementById('stabilityFill');
   const stabilityText = document.getElementById('stabilityText');
+  const stabilitySelect = document.getElementById('stabilitySelect');
 
   // Orphan modal refs
   const btnFindOrphan = document.getElementById('btnFindOrphan');
@@ -268,26 +270,24 @@
   // ---- STABILITY METER ----
 
   function updateStabilityMeter() {
-    const pct = Math.min(100, Math.max(0, stabilityScore));
+    const pct = stabilityWindow > 0 ? Math.min(100, (consecutiveDetections / stabilityWindow) * 100) : 0;
     stabilityFill.style.width = pct + '%';
 
     stabilityFill.classList.remove('low', 'medium', 'high');
-    if (pct >= 70) {
+    if (consecutiveDetections >= stabilityWindow) {
       stabilityFill.classList.add('high');
-    } else if (pct >= 30) {
+    } else if (consecutiveDetections > 0) {
       stabilityFill.classList.add('medium');
     } else {
       stabilityFill.classList.add('low');
     }
 
-    if (pct >= 85) {
-      stabilityText.textContent = 'READY TO CAPTURE';
-    } else if (pct >= 50) {
-      stabilityText.textContent = 'HOLD STEADY';
-    } else if (pct > 0) {
-      stabilityText.textContent = 'SEARCHING';
+    if (consecutiveDetections >= stabilityWindow) {
+      stabilityText.textContent = 'CAPTURING';
+    } else if (consecutiveDetections > 0) {
+      stabilityText.textContent = consecutiveDetections + '/' + stabilityWindow + ' STABLE';
     } else {
-      stabilityText.textContent = '';
+      stabilityText.textContent = 'SEARCHING';
     }
   }
 
@@ -297,7 +297,7 @@
 
   function hideStabilityMeter() {
     stabilityMeter.classList.remove('visible');
-    stabilityScore = 0;
+    consecutiveDetections = 0;
     updateStabilityMeter();
   }
 
@@ -326,7 +326,7 @@
 
   function transitionTo(state) {
     currentState = state;
-    stabilityScore = 0;
+    consecutiveDetections = 0;
     isProcessing = false;
     setBracketState(null);
     setDetectionText('');
@@ -386,10 +386,10 @@
 
   function startAutoScan() {
     stopAutoScan();
-    stabilityScore = 0;
+    consecutiveDetections = 0;
     updateStabilityMeter();
     showStabilityMeter();
-    scanInterval = setInterval(autoScanTick, 750);
+    scanInterval = setInterval(autoScanTick, 500);
   }
 
   function stopAutoScan() {
@@ -422,63 +422,48 @@
         console.error('Detection API error:', result.error);
         setDetectionText(result.error || 'API error');
         detectionIndicator.classList.add('error');
-        stabilityScore = Math.max(0, stabilityScore - 15);
+        consecutiveDetections = 0;
         updateStabilityMeter();
+        setBracketState(null);
         return;
       }
 
       detectionIndicator.classList.remove('error');
 
       if (result.detected) {
-        const conf = (result.confidence || '').toLowerCase();
-        let increment = 30;
-        if (conf === 'high') increment = 45;
-        else if (conf === 'medium') increment = 30;
-        else if (conf === 'low') increment = 18;
-
-        stabilityScore = Math.min(100, stabilityScore + increment);
+        const prevCount = consecutiveDetections;
+        consecutiveDetections++;
         updateStabilityMeter();
 
-        if (stabilityScore >= 80) {
-          setBracketState('locking');
-        } else {
-          setBracketState('detecting');
-        }
-
-        if (stabilityScore <= increment) {
+        // Play tick on first detection
+        if (prevCount === 0) {
           playDetectionTick();
         }
 
-        const pct = Math.round(stabilityScore);
-        if (pct >= 85) {
-          setDetectionText('Locking on...');
-        } else {
-          setDetectionText('Stability: ' + pct + '%');
-        }
-
-        if (stabilityScore >= 100) {
+        // Bracket states: yellow when detected but not yet stable, green when about to capture
+        if (consecutiveDetections >= stabilityWindow) {
+          setBracketState('locking');
           setDetectionText('Capturing...');
           playCaptureSound();
           await performCapture(image);
+        } else {
+          setBracketState('detecting');
+          setDetectionText(consecutiveDetections + '/' + stabilityWindow + ' stable');
         }
       } else {
-        stabilityScore = Math.max(0, stabilityScore - 25);
+        // Any miss resets the counter
+        consecutiveDetections = 0;
         updateStabilityMeter();
-
-        if (stabilityScore > 0) {
-          setBracketState('detecting');
-          setDetectionText('Hold steady...');
-        } else {
-          setBracketState(null);
-          setDetectionText('Watching...');
-        }
+        setBracketState(null);
+        setDetectionText('Watching...');
       }
     } catch (err) {
       console.error('Auto-scan error:', err);
       setDetectionText('Network error — retrying...');
       detectionIndicator.classList.add('error');
-      stabilityScore = Math.max(0, stabilityScore - 15);
+      consecutiveDetections = 0;
       updateStabilityMeter();
+      setBracketState(null);
     } finally {
       isProcessing = false;
     }
@@ -533,7 +518,7 @@
       console.error('Garment analysis error:', err);
       stopProgressiveText();
       statePrompt.textContent = err.message || 'Analysis failed — retrying...';
-      stabilityScore = 0;
+      consecutiveDetections = 0;
       startAutoScan();
     }
   }
@@ -630,7 +615,7 @@
       console.error('Label analysis error:', err);
       stopProgressiveText();
       statePrompt.textContent = err.message || 'Label read failed — retrying...';
-      stabilityScore = 0;
+      consecutiveDetections = 0;
       startAutoScan();
     }
   }
@@ -991,6 +976,12 @@
 
   cameraSelect.addEventListener('change', () => {
     startCamera(cameraSelect.value);
+  });
+
+  stabilitySelect.addEventListener('change', () => {
+    stabilityWindow = parseInt(stabilitySelect.value);
+    consecutiveDetections = 0;
+    updateStabilityMeter();
   });
 
   btnCaptureDamage.addEventListener('click', () => {
