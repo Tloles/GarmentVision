@@ -827,12 +827,31 @@ app.post('/api/customer', async (req, res) => {
     if (!customer_barcode || !name) {
       return res.status(400).json({ error: 'Barcode and name are required' });
     }
+
+    // Use upsert to handle duplicate barcodes gracefully
     const { data, error } = await supabase
       .from('customers')
-      .insert({ customer_barcode, name, phone: phone || null, email: email || null })
+      .upsert(
+        { customer_barcode, name, phone: phone || null, email: email || null },
+        { onConflict: 'customer_barcode' }
+      )
       .select()
       .single();
-    if (error) return res.status(500).json({ error: error.message });
+
+    if (error) {
+      console.error('Customer upsert error:', error.message);
+      // Fallback: try to fetch the existing customer
+      const { data: existing } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('customer_barcode', customer_barcode)
+        .maybeSingle();
+      if (existing) {
+        return res.json({ success: true, customer: existing });
+      }
+      return res.status(500).json({ error: error.message });
+    }
+
     res.json({ success: true, customer: data });
   } catch (err) {
     console.error('Create customer error:', err.message);
@@ -854,28 +873,52 @@ app.post('/api/order', async (req, res) => {
       String(now.getDate()).padStart(2, '0');
     const prefix = 'ORD-' + dateStr + '-';
 
-    // Get today's order count
-    const { data: todayOrders } = await supabase
-      .from('orders')
-      .select('order_number')
-      .like('order_number', prefix + '%');
-    const seq = (todayOrders ? todayOrders.length : 0) + 1;
+    // Get today's order count for sequencing
+    let seq = 1;
+    try {
+      const { data: todayOrders } = await supabase
+        .from('orders')
+        .select('order_number')
+        .like('order_number', prefix + '%');
+      seq = (todayOrders ? todayOrders.length : 0) + 1;
+    } catch (countErr) {
+      console.error('Order count query failed, using seq=1:', countErr.message);
+    }
     const orderNumber = prefix + String(seq).padStart(3, '0');
 
-    const { data, error } = await supabase
+    // Build insert payload — only include columns that exist
+    const insertPayload = { customer_barcode: customer_barcode || null };
+
+    // Try with order_number and status first (full schema)
+    let result = await supabase
       .from('orders')
-      .insert({
-        order_number: orderNumber,
-        customer_barcode: customer_barcode || null,
-        status: 'open',
-      })
+      .insert({ ...insertPayload, order_number: orderNumber, status: 'open' })
       .select()
       .single();
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ success: true, order: data });
+
+    // If columns don't exist, retry with minimal payload
+    if (result.error && result.error.message && result.error.message.includes('column')) {
+      console.error('Full insert failed, retrying minimal:', result.error.message);
+      result = await supabase
+        .from('orders')
+        .insert(insertPayload)
+        .select()
+        .single();
+    }
+
+    if (result.error) {
+      console.error('Order insert error:', result.error.message);
+      return res.status(500).json({ error: 'Failed to create order: ' + result.error.message });
+    }
+
+    // Ensure the order object has an order_number for the frontend
+    const order = result.data;
+    if (!order.order_number) order.order_number = orderNumber;
+
+    res.json({ success: true, order });
   } catch (err) {
     console.error('Create order error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Create order failed: ' + err.message });
   }
 });
 

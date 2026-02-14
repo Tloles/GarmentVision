@@ -216,10 +216,17 @@
     btnCustLookup.textContent = 'LOOKING UP...';
 
     fetch('/api/customer/' + encodeURIComponent(barcode))
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        if (!r.ok && r.status !== 200) {
+          return r.json().then(function (d) { throw new Error(d.error || 'Server error ' + r.status); });
+        }
+        return r.json();
+      })
       .then(function (data) {
         if (data.found && data.customer) {
-          createOrderForCustomer(data.customer.customer_barcode, data.customer.name);
+          // Customer found — now create order (keep button disabled during this)
+          btnCustLookup.textContent = 'CREATING ORDER...';
+          return createOrderForCustomer(data.customer.customer_barcode, data.customer.name, custError);
         } else if (data.error && data.error.includes('not configured')) {
           showError(custError, 'Database not configured. Add SUPABASE_URL and SUPABASE_SERVICE_KEY to .env');
         } else {
@@ -285,7 +292,8 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data.success) {
-          createOrderForCustomer(barcode, name);
+          btnCreateCustomer.textContent = 'CREATING ORDER...';
+          return createOrderForCustomer(barcode, name, newCustError);
         } else {
           showError(newCustError, data.error || 'Failed to create customer');
         }
@@ -305,29 +313,36 @@
   // CREATE ORDER & GO TO GARMENT ENTRY
   // ========================================
 
-  function createOrderForCustomer(customerBarcode, customerName) {
-    fetch('/api/order', {
+  function createOrderForCustomer(customerBarcode, customerName, errorEl) {
+    return fetch('/api/order', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ customer_barcode: customerBarcode }),
     })
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        if (!r.ok) {
+          return r.json().catch(function () { return { error: 'Server error ' + r.status }; }).then(function (d) {
+            throw new Error(d.error || 'Failed to create order');
+          });
+        }
+        return r.json();
+      })
       .then(function (data) {
         if (data.success && data.order) {
           currentOrder = {
             id: data.order.id,
-            orderNumber: data.order.order_number,
+            orderNumber: data.order.order_number || 'ORD-' + Date.now(),
             customerBarcode: customerBarcode,
             customerName: customerName,
             items: [],
           };
           enterGarmentScreen();
         } else {
-          showError(custError, data.error || 'Failed to create order');
+          throw new Error(data.error || 'Failed to create order');
         }
       })
       .catch(function (err) {
-        showError(custError, 'Error creating order: ' + err.message);
+        showError(errorEl || custError, 'Order creation failed: ' + err.message);
       });
   }
 
