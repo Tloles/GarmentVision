@@ -12,7 +12,13 @@
   let cameraInitialized = false;
 
   // ---- CAMERA CAPTURE STATE ----
-  const CAPTURE_STATES = { GARMENT_SCAN: 1, DAMAGE_CAPTURE: 2, CARE_LABEL: 3, CAPTURE_COMPLETE: 4 };
+  const CAPTURE_STATES = {
+    GARMENT_SCAN: 1,
+    GARMENT_REVIEW: 2,
+    DAMAGE_CAPTURE: 3,
+    CARE_LABEL: 4,
+    CAPTURE_COMPLETE: 5,
+  };
   let captureState = CAPTURE_STATES.GARMENT_SCAN;
   let consecutiveDetections = 0;
   let stabilityWindow = 2;
@@ -37,7 +43,6 @@
   function showScreen(name) {
     Object.values(screens).forEach(function (s) { s.classList.remove('active'); });
     screens[name].classList.add('active');
-    // Auto-focus barcode inputs
     if (name === 'customer') {
       setTimeout(function () { custBarcodeInput.focus(); }, 100);
     } else if (name === 'garmentEntry') {
@@ -88,7 +93,7 @@
   var btnRescanExisting = document.getElementById('btnRescanExisting');
   var btnExistBack = document.getElementById('btnExistBack');
 
-  // Screen 4 (camera)
+  // Screen 4 (camera) — core elements
   var cameraFeed = document.getElementById('cameraFeed');
   var captureCanvas = document.getElementById('captureCanvas');
   var cameraSelect = document.getElementById('cameraSelect');
@@ -99,17 +104,33 @@
   var damageControls = document.getElementById('damageControls');
   var btnCaptureDamage = document.getElementById('btnCaptureDamage');
   var btnSkipDamage = document.getElementById('btnSkipDamage');
-  var captureConfirm = document.getElementById('captureConfirm');
-  var btnConfirmAdd = document.getElementById('btnConfirmAdd');
   var btnCameraBack = document.getElementById('btnCameraBack');
   var brackets = document.querySelectorAll('.bracket');
   var stabilityMeter = document.getElementById('stabilityMeter');
   var stabilityFill = document.getElementById('stabilityFill');
   var stabilityText = document.getElementById('stabilityText');
-  var damageList = document.getElementById('damageList');
-  var stateDots = document.querySelectorAll('.state-dot');
   var cameraOrderNum = document.getElementById('cameraOrderNum');
   var cameraGarmentBarcode = document.getElementById('cameraGarmentBarcode');
+
+  // Screen 4 — progressive sections
+  var secScan = document.getElementById('secScan');
+  var secGarment = document.getElementById('secGarment');
+  var secDamage = document.getElementById('secDamage');
+  var secCare = document.getElementById('secCare');
+  var secConfirm = document.getElementById('secConfirm');
+  var scanStatusText = document.getElementById('scanStatusText');
+  var careStatusText = document.getElementById('careStatusText');
+  var garmentSummaryText = document.getElementById('garmentSummaryText');
+  var damageSummaryText = document.getElementById('damageSummaryText');
+  var careSummaryText = document.getElementById('careSummaryText');
+  var confirmSummary = document.getElementById('confirmSummary');
+  var damageList = document.getElementById('damageList');
+  var garmentActions = document.getElementById('garmentActions');
+  var btnGarmentOk = document.getElementById('btnGarmentOk');
+  var btnGarmentRescan = document.getElementById('btnGarmentRescan');
+  var btnDamageDone = document.getElementById('btnDamageDone');
+  var btnConfirmAdd = document.getElementById('btnConfirmAdd');
+  var progDots = document.querySelectorAll('.prog-dot');
 
   // Fields
   var fields = {
@@ -122,12 +143,6 @@
     drying: document.getElementById('fieldDrying'),
     ironing: document.getElementById('fieldIroning'),
     bleaching: document.getElementById('fieldBleaching'),
-  };
-
-  var groups = {
-    garment: document.getElementById('groupGarment'),
-    damage: document.getElementById('groupDamage'),
-    care: document.getElementById('groupCare'),
   };
 
   // Screen 5
@@ -170,15 +185,77 @@
     damageList.innerHTML = '<p class="placeholder-text">No damage recorded</p>';
   }
 
-  function highlightGroup(name) {
-    Object.values(groups).forEach(function (g) { g.classList.remove('highlight'); });
-    if (name && groups[name]) groups[name].classList.add('highlight');
+  // ---- PROGRESSIVE SECTION MANAGEMENT ----
+  function setSectionState(section, state) {
+    section.classList.remove('sec-active', 'sec-collapsed', 'sec-review');
+    if (state === 'active') section.classList.add('sec-active');
+    else if (state === 'collapsed') section.classList.add('sec-collapsed');
+    else if (state === 'review') section.classList.add('sec-review');
+    // 'hidden' = no class added → display: none via CSS
   }
-  function markGroupComplete(name) {
-    if (groups[name]) { groups[name].classList.remove('highlight'); groups[name].classList.add('complete'); }
+
+  function resetAllSections() {
+    [secScan, secGarment, secDamage, secCare, secConfirm].forEach(function (s) {
+      setSectionState(s, 'hidden');
+    });
   }
-  function resetGroups() {
-    Object.values(groups).forEach(function (g) { g.classList.remove('highlight', 'complete'); });
+
+  function buildGarmentSummary() {
+    var parts = [];
+    if (fields.color.value) parts.push(fields.color.value);
+    if (fields.type.value) parts.push(fields.type.value);
+    if (fields.brand.value) parts.push('\u2014 ' + fields.brand.value);
+    return parts.join(' ') || 'Garment scanned';
+  }
+
+  function buildDamageSummary() {
+    var count = currentGarment.damages.length;
+    if (count === 0) return 'No damage';
+    return count + ' issue' + (count > 1 ? 's' : '') + ' found';
+  }
+
+  function buildCareSummary() {
+    var parts = [];
+    if (fields.dryClean.value && fields.dryClean.value !== 'Not specified') parts.push(fields.dryClean.value);
+    if (fields.fiber.value && fields.fiber.value !== 'Not specified') parts.push(fields.fiber.value);
+    return parts.join(' \u2014 ') || 'Care info captured';
+  }
+
+  function buildConfirmSummaryHtml() {
+    var html = '';
+
+    // Garment info
+    html += '<div class="confirm-group">';
+    html += '<div class="confirm-group-title">Garment</div>';
+    if (fields.type.value) html += '<div class="confirm-row"><span class="confirm-label">Type</span><span class="confirm-value">' + escapeHtml(fields.type.value) + '</span></div>';
+    if (fields.color.value) html += '<div class="confirm-row"><span class="confirm-label">Color</span><span class="confirm-value">' + escapeHtml(fields.color.value) + '</span></div>';
+    if (fields.brand.value) html += '<div class="confirm-row"><span class="confirm-label">Brand</span><span class="confirm-value">' + escapeHtml(fields.brand.value) + '</span></div>';
+    html += '</div>';
+
+    // Damage
+    html += '<div class="confirm-group">';
+    html += '<div class="confirm-group-title">Damage</div>';
+    if (currentGarment.damages.length === 0) {
+      html += '<div class="confirm-row"><span class="confirm-value" style="color:var(--success)">No damage recorded</span></div>';
+    } else {
+      currentGarment.damages.forEach(function (d) {
+        html += '<div class="confirm-row"><span class="confirm-value">' + escapeHtml((d.severity || '') + ' ' + (d.type || '') + (d.location ? ' at ' + d.location : '')) + '</span></div>';
+      });
+    }
+    html += '</div>';
+
+    // Care
+    html += '<div class="confirm-group">';
+    html += '<div class="confirm-group-title">Care Instructions</div>';
+    if (fields.fiber.value) html += '<div class="confirm-row"><span class="confirm-label">Fiber</span><span class="confirm-value">' + escapeHtml(fields.fiber.value) + '</span></div>';
+    if (fields.dryClean.value) html += '<div class="confirm-row"><span class="confirm-label">Dry Clean</span><span class="confirm-value">' + escapeHtml(fields.dryClean.value) + '</span></div>';
+    if (fields.washing.value) html += '<div class="confirm-row"><span class="confirm-label">Washing</span><span class="confirm-value">' + escapeHtml(fields.washing.value) + '</span></div>';
+    if (fields.drying.value) html += '<div class="confirm-row"><span class="confirm-label">Drying</span><span class="confirm-value">' + escapeHtml(fields.drying.value) + '</span></div>';
+    if (fields.ironing.value) html += '<div class="confirm-row"><span class="confirm-label">Ironing</span><span class="confirm-value">' + escapeHtml(fields.ironing.value) + '</span></div>';
+    if (fields.bleaching.value) html += '<div class="confirm-row"><span class="confirm-label">Bleaching</span><span class="confirm-value">' + escapeHtml(fields.bleaching.value) + '</span></div>';
+    html += '</div>';
+
+    return html;
   }
 
   // ---- AUDIO ----
@@ -224,7 +301,6 @@
       })
       .then(function (data) {
         if (data.found && data.customer) {
-          // Customer found — now create order (keep button disabled during this)
           btnCustLookup.textContent = 'CREATING ORDER...';
           return createOrderForCustomer(data.customer.customer_barcode, data.customer.name, custError);
         } else if (data.error && data.error.includes('not configured')) {
@@ -253,7 +329,6 @@
     custNameInput.value = '';
     custPhoneInput.value = '';
     custEmailInput.value = '';
-    // Fetch next barcode
     newCustBarcode.textContent = 'Generating...';
     fetch('/api/customer/next-barcode')
       .then(function (r) { return r.json(); })
@@ -369,8 +444,8 @@
         row.className = 'item-row';
         row.innerHTML =
           '<div class="item-info">' + (idx + 1) + '. ' + escapeHtml(item.color || '') + ' ' + escapeHtml(item.garmentType || 'Garment') +
-          '<div class="item-sub">' + escapeHtml(item.barcode) + (item.brand ? ' — ' + escapeHtml(item.brand) : '') +
-          (item.dryClean && item.dryClean !== 'Not specified' ? ' — ' + escapeHtml(item.dryClean) : '') +
+          '<div class="item-sub">' + escapeHtml(item.barcode) + (item.brand ? ' \u2014 ' + escapeHtml(item.brand) : '') +
+          (item.dryClean && item.dryClean !== 'Not specified' ? ' \u2014 ' + escapeHtml(item.dryClean) : '') +
           '</div></div>';
         orderItemsList.appendChild(row);
       });
@@ -397,7 +472,6 @@
         } else if (data.error && data.error.includes('not configured')) {
           showError(garmentError, 'Database not configured.');
         } else {
-          // Not found — go to camera capture with this barcode
           currentGarmentBarcode = barcode;
           isRescan = false;
           goToCameraCapture();
@@ -526,7 +600,6 @@
   // ========================================
 
   function addGarmentToOrder(barcode, garmentData) {
-    // Add to order_items in DB
     fetch('/api/order/' + currentOrder.id + '/items', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -540,7 +613,6 @@
         console.error('Order item save error:', err);
       });
 
-    // Add to local state
     currentOrder.items.push(garmentData);
     enterGarmentScreen();
   }
@@ -551,7 +623,7 @@
 
   function goToCameraCapture() {
     showScreen('camera');
-    cameraOrderNum.textContent = currentOrder.orderNumber + ' — ' + currentOrder.customerName;
+    cameraOrderNum.textContent = currentOrder.orderNumber + ' \u2014 ' + currentOrder.customerName;
     cameraGarmentBarcode.textContent = 'New Garment: ' + currentGarmentBarcode;
 
     // Reset capture state
@@ -559,8 +631,7 @@
     lastGarmentPhoto = null;
     lastLabelPhoto = null;
     clearAllFields();
-    resetGroups();
-    captureConfirm.classList.add('hidden');
+    resetAllSections();
 
     initCamera().then(function () {
       transitionCapture(CAPTURE_STATES.GARMENT_SCAN);
@@ -614,7 +685,7 @@
     updateStabilityMeter();
   });
 
-  // ---- CAPTURE STATE MACHINE ----
+  // ---- CAPTURE STATE MACHINE (Progressive Disclosure) ----
   function transitionCapture(state) {
     captureState = state;
     consecutiveDetections = 0;
@@ -624,43 +695,71 @@
     hideStabilityMeter();
     stopProgressiveText();
 
-    stateDots.forEach(function (dot) {
-      var s = parseInt(dot.dataset.state);
+    // Update progress dots (5 steps)
+    progDots.forEach(function (dot) {
+      var s = parseInt(dot.dataset.step);
       dot.classList.remove('active', 'done');
       if (s < state) dot.classList.add('done');
       if (s === state) dot.classList.add('active');
     });
 
     damageControls.classList.add('hidden');
-    captureConfirm.classList.add('hidden');
-
     btnCameraBack.style.display = state > CAPTURE_STATES.GARMENT_SCAN ? '' : 'none';
 
     switch (state) {
       case CAPTURE_STATES.GARMENT_SCAN:
         statePrompt.textContent = 'Place garment in frame';
-        highlightGroup('garment');
+        resetAllSections();
+        setSectionState(secScan, 'active');
+        scanStatusText.textContent = 'Place garment in frame';
         startAutoScan();
         break;
+
+      case CAPTURE_STATES.GARMENT_REVIEW:
+        statePrompt.textContent = 'Review garment info';
+        resetAllSections();
+        setSectionState(secGarment, 'active');
+        garmentActions.style.display = '';
+        stopAutoScan();
+        setBracketState('captured');
+        break;
+
       case CAPTURE_STATES.DAMAGE_CAPTURE:
-        statePrompt.textContent = 'Any damage? Hold it to camera, or skip';
-        highlightGroup('damage');
+        statePrompt.textContent = 'Any damage? Capture or skip';
+        resetAllSections();
+        setSectionState(secGarment, 'collapsed');
+        garmentSummaryText.textContent = buildGarmentSummary();
+        setSectionState(secDamage, 'active');
         damageControls.classList.remove('hidden');
         stopAutoScan();
+        setBracketState(null);
         break;
+
       case CAPTURE_STATES.CARE_LABEL:
         statePrompt.textContent = 'Show care label to camera';
-        highlightGroup('care');
+        resetAllSections();
+        setSectionState(secGarment, 'collapsed');
+        garmentSummaryText.textContent = buildGarmentSummary();
+        setSectionState(secDamage, 'collapsed');
+        damageSummaryText.textContent = buildDamageSummary();
+        setSectionState(secCare, 'active');
+        if (careStatusText) careStatusText.textContent = 'Show care label to camera...';
         startAutoScan();
         break;
+
       case CAPTURE_STATES.CAPTURE_COMPLETE:
         statePrompt.textContent = 'Review and confirm';
-        highlightGroup(null);
-        captureConfirm.classList.remove('hidden');
+        resetAllSections();
+        setSectionState(secGarment, 'review');
+        garmentSummaryText.textContent = buildGarmentSummary();
+        garmentActions.style.display = 'none';
+        setSectionState(secDamage, 'review');
+        damageSummaryText.textContent = buildDamageSummary();
+        setSectionState(secCare, 'review');
+        careSummaryText.textContent = buildCareSummary();
+        setSectionState(secConfirm, 'active');
+        confirmSummary.innerHTML = buildConfirmSummaryHtml();
         stopAutoScan();
-        markGroupComplete('garment');
-        markGroupComplete('damage');
-        markGroupComplete('care');
         setBracketState('captured');
         break;
     }
@@ -806,6 +905,7 @@
   // ---- AI ANALYSIS ----
   async function analyzeGarment(image) {
     startProgressiveText(['Identifying garment...', 'Classifying type & color...', 'Checking for brand...']);
+    scanStatusText.textContent = 'Analyzing garment...';
     try {
       var resp = await fetch('/api/analyze/garment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: image }) });
       var data = await resp.json();
@@ -817,11 +917,11 @@
       setFieldValue(fields.type, data.garmentType);
       setFieldValue(fields.color, data.color);
       setFieldValue(fields.brand, data.brand);
-      markGroupComplete('garment');
-      transitionCapture(CAPTURE_STATES.DAMAGE_CAPTURE);
+      transitionCapture(CAPTURE_STATES.GARMENT_REVIEW);
     } catch (err) {
       stopProgressiveText();
-      statePrompt.textContent = err.message || 'Analysis failed — retrying...';
+      statePrompt.textContent = err.message || 'Analysis failed \u2014 retrying...';
+      scanStatusText.textContent = 'Scan failed \u2014 retrying...';
       consecutiveDetections = 0;
       startAutoScan();
     }
@@ -854,6 +954,7 @@
 
   async function analyzeLabel(image) {
     startProgressiveText(['Reading care symbols...', 'Extracting fiber content...', 'Interpreting instructions...']);
+    if (careStatusText) careStatusText.textContent = 'Analyzing care label...';
     try {
       var resp = await fetch('/api/analyze/label', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: image }) });
       var data = await resp.json();
@@ -871,11 +972,11 @@
       setFieldValue(fields.drying, data.drying);
       setFieldValue(fields.ironing, data.ironing);
       setFieldValue(fields.bleaching, data.bleaching);
-      markGroupComplete('care');
       transitionCapture(CAPTURE_STATES.CAPTURE_COMPLETE);
     } catch (err) {
       stopProgressiveText();
-      statePrompt.textContent = err.message || 'Label read failed — retrying...';
+      statePrompt.textContent = err.message || 'Label read failed \u2014 retrying...';
+      if (careStatusText) careStatusText.textContent = 'Scan failed \u2014 retrying...';
       consecutiveDetections = 0;
       startAutoScan();
     }
@@ -888,7 +989,29 @@
   });
 
   btnSkipDamage.addEventListener('click', function () {
-    markGroupComplete('damage');
+    transitionCapture(CAPTURE_STATES.CARE_LABEL);
+  });
+
+  btnGarmentOk.addEventListener('click', function () {
+    transitionCapture(CAPTURE_STATES.DAMAGE_CAPTURE);
+  });
+
+  btnGarmentRescan.addEventListener('click', function () {
+    // Clear garment fields and re-scan
+    fields.type.value = '';
+    fields.type.classList.remove('populated');
+    fields.color.value = '';
+    fields.color.classList.remove('populated');
+    fields.brand.value = '';
+    fields.brand.classList.remove('populated');
+    currentGarment.garmentType = '';
+    currentGarment.color = '';
+    currentGarment.brand = '';
+    lastGarmentPhoto = null;
+    transitionCapture(CAPTURE_STATES.GARMENT_SCAN);
+  });
+
+  btnDamageDone.addEventListener('click', function () {
     transitionCapture(CAPTURE_STATES.CARE_LABEL);
   });
 
@@ -896,14 +1019,13 @@
     stopAutoScan();
     isProcessing = false;
     stopProgressiveText();
-    if (captureState === CAPTURE_STATES.DAMAGE_CAPTURE) {
-      groups.garment.classList.remove('complete');
+    if (captureState === CAPTURE_STATES.GARMENT_REVIEW) {
       transitionCapture(CAPTURE_STATES.GARMENT_SCAN);
+    } else if (captureState === CAPTURE_STATES.DAMAGE_CAPTURE) {
+      transitionCapture(CAPTURE_STATES.GARMENT_REVIEW);
     } else if (captureState === CAPTURE_STATES.CARE_LABEL) {
-      groups.damage.classList.remove('complete');
       transitionCapture(CAPTURE_STATES.DAMAGE_CAPTURE);
     } else if (captureState === CAPTURE_STATES.CAPTURE_COMPLETE) {
-      groups.care.classList.remove('complete');
       transitionCapture(CAPTURE_STATES.CARE_LABEL);
     }
   });
@@ -994,8 +1116,8 @@
         '<div class="review-card-info">' +
         '<div class="review-card-title">' + (idx + 1) + '. ' + escapeHtml(item.color || '') + ' ' + escapeHtml(item.garmentType || 'Garment') + '</div>' +
         '<div class="review-card-sub">' + escapeHtml(item.barcode || '') +
-        (item.brand ? ' — ' + escapeHtml(item.brand) : '') +
-        (item.dryClean && item.dryClean !== 'Not specified' ? ' — ' + escapeHtml(item.dryClean) : '') +
+        (item.brand ? ' \u2014 ' + escapeHtml(item.brand) : '') +
+        (item.dryClean && item.dryClean !== 'Not specified' ? ' \u2014 ' + escapeHtml(item.dryClean) : '') +
         '</div></div>' +
         '<button class="btn-remove" data-idx="' + idx + '">Remove</button>';
       reviewItemsList.appendChild(card);
@@ -1006,7 +1128,6 @@
         var i = parseInt(btn.dataset.idx);
         var removed = currentOrder.items[i];
         if (!removed) return;
-        // Remove from DB
         fetch('/api/order/' + currentOrder.id + '/items/' + encodeURIComponent(removed.barcode), { method: 'DELETE' })
           .catch(function (err) { console.error('Remove item error:', err); });
         currentOrder.items.splice(i, 1);
@@ -1022,7 +1143,6 @@
     fetch('/api/order/' + currentOrder.id + '/complete', { method: 'PATCH' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        // Show success toast
         orderCompleteToast.classList.remove('hidden');
         setTimeout(function () {
           orderCompleteToast.classList.add('hidden');
@@ -1040,7 +1160,7 @@
   });
 
   btnSendSmrt.addEventListener('click', function () {
-    alert('Coming soon — SMRT integration will be available in a future update.');
+    alert('Coming soon \u2014 SMRT integration will be available in a future update.');
   });
 
   btnReviewBack.addEventListener('click', function () {

@@ -128,7 +128,7 @@
         <select id="cameraSelect"></select>
       </div>
     </div>
-    <div class="camera-layout">
+    <div class="camera-layout" id="cameraLayout">
       <div class="camera-panel">
         <div class="camera-container">
           <video id="cameraFeed" autoplay playsinline></video>
@@ -147,49 +147,101 @@
         </div>
         <div id="damageControls" class="damage-controls hidden">
           <button id="btnCaptureDamage" class="btn btn-damage">Capture Damage</button>
-          <button id="btnSkipDamage" class="btn btn-skip">Skip — No Damage</button>
+          <button id="btnSkipDamage" class="btn btn-skip">Skip &mdash; No Damage</button>
         </div>
       </div>
       <div class="capture-details">
-        <div class="state-nav">
+        <div class="prog-nav">
           <button id="btnCameraBack" class="btn btn-back-sm" title="Go back">&larr;</button>
-          <div class="state-indicator">
-            <span class="state-dot" data-state="1"></span>
-            <span class="state-label">Scan</span>
-            <span class="state-line"></span>
-            <span class="state-dot" data-state="2"></span>
-            <span class="state-label">Damage</span>
-            <span class="state-line"></span>
-            <span class="state-dot" data-state="3"></span>
-            <span class="state-label">Label</span>
-            <span class="state-line"></span>
-            <span class="state-dot" data-state="4"></span>
-            <span class="state-label">Done</span>
+          <div class="prog-indicator">
+            <span class="prog-dot" data-step="1"></span>
+            <span class="prog-lbl">Scan</span>
+            <span class="prog-line"></span>
+            <span class="prog-dot" data-step="2"></span>
+            <span class="prog-lbl">Info</span>
+            <span class="prog-line"></span>
+            <span class="prog-dot" data-step="3"></span>
+            <span class="prog-lbl">Damage</span>
+            <span class="prog-line"></span>
+            <span class="prog-dot" data-step="4"></span>
+            <span class="prog-lbl">Label</span>
+            <span class="prog-line"></span>
+            <span class="prog-dot" data-step="5"></span>
+            <span class="prog-lbl">Done</span>
           </div>
         </div>
-        <div class="fields-scroll">
-          <fieldset class="field-group" id="groupGarment">
-            <legend>Garment Info</legend>
-            <div class="field-row"><label>Type</label><input type="text" id="fieldType" placeholder="Waiting for scan..."></div>
-            <div class="field-row"><label>Color</label><input type="text" id="fieldColor" placeholder="Waiting for scan..."></div>
-            <div class="field-row"><label>Brand</label><input type="text" id="fieldBrand" placeholder="Waiting for scan..."></div>
-          </fieldset>
-          <fieldset class="field-group" id="groupDamage">
-            <legend>Damage</legend>
-            <div id="damageList" class="damage-list"><p class="placeholder-text">No damage recorded</p></div>
-          </fieldset>
-          <fieldset class="field-group" id="groupCare">
-            <legend>Care Instructions</legend>
-            <div class="field-row"><label>Fiber</label><input type="text" id="fieldFiber" placeholder="Waiting for label scan..."></div>
-            <div class="field-row"><label>Dry Clean</label><input type="text" id="fieldDryClean" placeholder="Waiting for label scan..."></div>
-            <div class="field-row"><label>Washing</label><input type="text" id="fieldWashing" placeholder="Waiting for label scan..."></div>
-            <div class="field-row"><label>Drying</label><input type="text" id="fieldDrying" placeholder="Waiting for label scan..."></div>
-            <div class="field-row"><label>Ironing</label><input type="text" id="fieldIroning" placeholder="Waiting for label scan..."></div>
-            <div class="field-row"><label>Bleaching</label><input type="text" id="fieldBleaching" placeholder="Waiting for label scan..."></div>
-          </fieldset>
-        </div>
-        <div id="captureConfirm" class="capture-confirm hidden">
-          <button id="btnConfirmAdd" class="btn-large btn-primary">CONFIRM &amp; ADD</button>
+        <div class="prog-scroll">
+
+          <!-- STEP 1: Scanning status -->
+          <div id="secScan" class="prog-section sec-active">
+            <div class="prog-section-body scan-status-body">
+              <div class="scan-anim"><span class="spinner-lg"></span></div>
+              <p id="scanStatusText" class="scan-status-text">Place garment in frame</p>
+              <p class="scan-hint">Camera will auto-capture when garment is stable</p>
+            </div>
+          </div>
+
+          <!-- STEP 2: Garment Info Review -->
+          <div id="secGarment" class="prog-section">
+            <div class="prog-section-header">
+              <span class="prog-section-check">&#10003;</span>
+              <span class="prog-section-name">Garment Info</span>
+              <span id="garmentSummaryText" class="prog-section-summary"></span>
+            </div>
+            <div class="prog-section-body">
+              <div class="field-row"><label>Type</label><input type="text" id="fieldType" placeholder="Waiting for scan..."></div>
+              <div class="field-row"><label>Color</label><input type="text" id="fieldColor" placeholder="Waiting for scan..."></div>
+              <div class="field-row"><label>Brand</label><input type="text" id="fieldBrand" placeholder="Waiting for scan..."></div>
+              <div class="prog-actions" id="garmentActions">
+                <button id="btnGarmentOk" class="btn-large btn-success">LOOKS GOOD &mdash; CONTINUE</button>
+                <button id="btnGarmentRescan" class="btn-prog-link">Re-scan garment</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- STEP 3: Damage Check -->
+          <div id="secDamage" class="prog-section">
+            <div class="prog-section-header">
+              <span class="prog-section-check">&#10003;</span>
+              <span class="prog-section-name">Damage Check</span>
+              <span id="damageSummaryText" class="prog-section-summary"></span>
+            </div>
+            <div class="prog-section-body">
+              <div id="damageList" class="damage-list"><p class="placeholder-text">No damage recorded</p></div>
+              <p class="section-hint">Use camera controls to capture damage photos, or continue.</p>
+              <div class="prog-actions">
+                <button id="btnDamageDone" class="btn-large btn-success">CONTINUE TO CARE LABEL</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- STEP 4: Care Label -->
+          <div id="secCare" class="prog-section">
+            <div class="prog-section-header">
+              <span class="prog-section-check">&#10003;</span>
+              <span class="prog-section-name">Care Instructions</span>
+              <span id="careSummaryText" class="prog-section-summary"></span>
+            </div>
+            <div class="prog-section-body">
+              <p id="careStatusText" class="care-scan-hint">Show care label to camera...</p>
+              <div class="field-row"><label>Fiber</label><input type="text" id="fieldFiber" placeholder="Waiting for label scan..."></div>
+              <div class="field-row"><label>Dry Clean</label><input type="text" id="fieldDryClean" placeholder="Waiting for label scan..."></div>
+              <div class="field-row"><label>Washing</label><input type="text" id="fieldWashing" placeholder="Waiting for label scan..."></div>
+              <div class="field-row"><label>Drying</label><input type="text" id="fieldDrying" placeholder="Waiting for label scan..."></div>
+              <div class="field-row"><label>Ironing</label><input type="text" id="fieldIroning" placeholder="Waiting for label scan..."></div>
+              <div class="field-row"><label>Bleaching</label><input type="text" id="fieldBleaching" placeholder="Waiting for label scan..."></div>
+            </div>
+          </div>
+
+          <!-- STEP 5: Final Confirmation -->
+          <div id="secConfirm" class="prog-section">
+            <div class="prog-section-body">
+              <h3 class="confirm-heading">Review &amp; Confirm</h3>
+              <div id="confirmSummary" class="confirm-summary"></div>
+              <button id="btnConfirmAdd" class="btn-large btn-success confirm-btn">CONFIRM &amp; ADD TO ORDER</button>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
