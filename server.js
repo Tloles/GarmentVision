@@ -832,6 +832,181 @@ app.get('/api/orphan/lookup/:barcode', async (req, res) => {
   }
 });
 
+// Orphan search — capture photo, find candidates, run AI match
+app.post('/api/orphan/search', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured' });
+  try {
+    const { orphanPhoto } = req.body;
+    if (!orphanPhoto) return res.status(400).json({ error: 'No photo provided' });
+
+    // Fetch recent garments that have front photos (last 50)
+    const { data: garments, error: gErr } = await supabase
+      .from('garments')
+      .select('barcode, garment_type, color, brand, photo_front_url')
+      .not('photo_front_url', 'is', null)
+      .order('last_checked_in', { ascending: false })
+      .limit(50);
+
+    if (gErr) return res.status(500).json({ error: gErr.message });
+    if (!garments || garments.length === 0) {
+      return res.json({ matches: [], topMatchReasoning: 'No garments with photos in database to compare against.', candidates: [] });
+    }
+
+    // Look up order/customer info for each garment
+    const candidateInfo = [];
+    for (const g of garments) {
+      const { data: items } = await supabase
+        .from('order_items')
+        .select('order_id')
+        .eq('garment_barcode', g.barcode)
+        .limit(1);
+
+      let orderNumber = 'Unknown';
+      let customerName = 'Unknown';
+      if (items && items.length > 0) {
+        const { data: order } = await supabase
+          .from('orders')
+          .select('order_number, customer_barcode')
+          .eq('id', items[0].order_id)
+          .maybeSingle();
+        if (order) {
+          orderNumber = order.order_number || '#' + items[0].order_id;
+          if (order.customer_barcode) {
+            const { data: cust } = await supabase
+              .from('customers')
+              .select('name')
+              .eq('customer_barcode', order.customer_barcode)
+              .maybeSingle();
+            if (cust) customerName = cust.name;
+          }
+        }
+      }
+      candidateInfo.push({ ...g, orderNumber, customerName });
+    }
+
+    // Download candidate photos and convert to base64
+    const candidates = [];
+    for (const c of candidateInfo) {
+      try {
+        const imgRes = await fetch(c.photo_front_url);
+        if (!imgRes.ok) continue;
+        const buf = Buffer.from(await imgRes.arrayBuffer());
+        candidates.push({
+          barcode: c.barcode,
+          orderNumber: c.orderNumber,
+          customerName: c.customerName,
+          garmentType: c.garment_type || '',
+          color: c.color || '',
+          brand: c.brand || '',
+          photo: buf.toString('base64'),
+          photoUrl: c.photo_front_url,
+        });
+      } catch (e) {
+        // Skip candidates whose photos can't be fetched
+        continue;
+      }
+    }
+
+    if (candidates.length === 0) {
+      return res.json({ matches: [], topMatchReasoning: 'Could not load any candidate photos for comparison.', candidates: [] });
+    }
+
+    // Build the AI matching request (reusing the /api/orphan/match logic inline)
+    const content = [
+      { type: 'text', text: 'ORPHAN GARMENT (identify this one):' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: orphanPhoto } },
+    ];
+
+    // Limit to 10 candidates for the AI call to stay within token limits
+    const aiCandidates = candidates.slice(0, 10);
+    aiCandidates.forEach((candidate, index) => {
+      content.push({
+        type: 'text',
+        text: `CANDIDATE ${index + 1} - ID: ${candidate.barcode}, Order: #${candidate.orderNumber}, Customer: ${candidate.customerName}:`,
+      });
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/jpeg', data: candidate.photo },
+      });
+    });
+
+    content.push({
+      type: 'text',
+      text: `You are helping identify an orphaned garment that lost its barcode during cleaning.
+
+I showed you:
+1. A photo of the ORPHAN garment (the one we need to identify)
+2. Photos of ${aiCandidates.length} CANDIDATE garments from recent check-ins
+
+Your job: Determine which candidate garment is the SAME physical item as the orphan.
+
+MATCHING CRITERIA (look for these distinguishing features):
+- Buttons: number, material, color, placement
+- Pockets: number, placement, style
+- Construction: stitching, seams, collar/lapel style, cuff style
+- Fabric: texture, pattern, sheen
+- Wear patterns: fading, discoloration, unique marks
+- Brand labels or logos
+
+IMPORTANT: The orphan was just cleaned, so focus on STRUCTURAL features that don't change with cleaning.
+
+Return ONLY valid JSON:
+{
+  "matches": [
+    {
+      "candidateId": "barcode from candidate label",
+      "confidence": 0.0 to 1.0,
+      "matchingFeatures": ["list of specific matching features"],
+      "differences": ["notable differences, if any"]
+    }
+  ],
+  "topMatchReasoning": "brief explanation of why the top match is most likely correct"
+}
+
+Rank all candidates by confidence. Include all candidates in results.`,
+    });
+
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content }],
+    });
+
+    const text = message.content[0].text.trim();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return res.status(500).json({ error: 'Could not parse matching response' });
+    }
+
+    const result = JSON.parse(jsonMatch[0]);
+
+    // Enrich matches with garment info (type, color, brand, customer, order, photo URL)
+    if (result.matches) {
+      result.matches = result.matches.map(m => {
+        const cand = candidates.find(c => c.barcode === m.candidateId);
+        return {
+          ...m,
+          garmentType: cand ? cand.garmentType : '',
+          color: cand ? cand.color : '',
+          brand: cand ? cand.brand : '',
+          orderNumber: cand ? cand.orderNumber : '',
+          customerName: cand ? cand.customerName : '',
+          photoUrl: cand ? cand.photoUrl : '',
+        };
+      });
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error('Orphan search error:', err.status, err.message);
+    if (err.error) console.error('Details:', JSON.stringify(err.error));
+    const detail = err.status === 401 ? 'Invalid API key' :
+                   err.status === 429 ? 'Rate limited — slow down' :
+                   err.message || 'Unknown error';
+    res.status(500).json({ error: `Orphan search failed: ${detail}` });
+  }
+});
+
 // ---- CUSTOMER ENDPOINTS ----
 
 // Get next customer barcode

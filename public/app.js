@@ -50,8 +50,6 @@
       setTimeout(function () { garmentBarcodeInput.focus(); }, 100);
     } else if (name === 'newCustomer') {
       setTimeout(function () { custNameInput.focus(); }, 100);
-    } else if (name === 'orphan') {
-      setTimeout(function () { orphanBarcodeInput.focus(); }, 100);
     }
   }
 
@@ -280,129 +278,187 @@
     hideError(custError);
   });
 
-  // ---- Orphan DOM refs ----
-  var orphanBarcodeInput = document.getElementById('orphanBarcodeInput');
-  var btnOrphanLookup = document.getElementById('btnOrphanLookup');
-  var orphanError = document.getElementById('orphanError');
-  var orphanResults = document.getElementById('orphanResults');
-  var orphanBarcode = document.getElementById('orphanBarcode');
-  var orphanPhotos = document.getElementById('orphanPhotos');
-  var orphanDetails = document.getElementById('orphanDetails');
-  var orphanOrderInfo = document.getElementById('orphanOrderInfo');
-  var btnOrphanBack = document.getElementById('btnOrphanBack');
+  // ---- Orphan Garment Recovery ----
+  var orphanCameraFeed = document.getElementById('orphanCameraFeed');
+  var orphanCaptureCanvas = document.getElementById('orphanCaptureCanvas');
+  var orphanCameraSelect = document.getElementById('orphanCameraSelect');
+  var orphanFlash = document.getElementById('orphanFlash');
+  var orphanPrompt = document.getElementById('orphanPrompt');
+  var btnOrphanCapture = document.getElementById('btnOrphanCapture');
+  var btnOrphanCancel = document.getElementById('btnOrphanCancel');
+  var orphanStatus = document.getElementById('orphanStatus');
+  var orphanMatchList = document.getElementById('orphanMatchList');
+  var orphanCameraReady = false;
 
   btnOrphan.addEventListener('click', function () {
-    orphanBarcodeInput.value = '';
-    hideError(orphanError);
-    orphanResults.classList.add('hidden');
+    orphanStatus.textContent = 'Present the orphan garment in front of the camera, then click CAPTURE & SEARCH.';
+    orphanStatus.className = 'orphan-status';
+    orphanMatchList.innerHTML = '';
+    orphanPrompt.textContent = 'Present the orphan garment in front of the camera';
+    btnOrphanCapture.disabled = false;
+    btnOrphanCapture.textContent = 'CAPTURE & SEARCH';
     showScreen('orphan');
+    initOrphanCamera();
   });
 
-  function doOrphanLookup() {
-    var barcode = orphanBarcodeInput.value.trim();
-    if (!barcode) return;
-    hideError(orphanError);
-    orphanResults.classList.add('hidden');
-    btnOrphanLookup.disabled = true;
-    btnOrphanLookup.textContent = 'LOOKING UP...';
+  async function initOrphanCamera() {
+    if (orphanCameraReady) return;
+    try {
+      await navigator.mediaDevices.getUserMedia({ video: true });
+      var devices = await navigator.mediaDevices.enumerateDevices();
+      var videoDevices = devices.filter(function (d) { return d.kind === 'videoinput'; });
+      orphanCameraSelect.innerHTML = '';
+      videoDevices.forEach(function (device, i) {
+        var option = document.createElement('option');
+        option.value = device.deviceId;
+        option.textContent = device.label || 'Camera ' + (i + 1);
+        orphanCameraSelect.appendChild(option);
+      });
+      if (videoDevices.length > 0) {
+        orphanCameraSelect.value = videoDevices[videoDevices.length - 1].deviceId;
+      }
+      await startOrphanCamera(orphanCameraSelect.value);
+      orphanCameraReady = true;
+    } catch (err) {
+      console.error('Orphan camera init failed:', err);
+      orphanPrompt.textContent = 'Camera access denied';
+    }
+  }
 
-    fetch('/api/orphan/lookup/' + encodeURIComponent(barcode))
+  async function startOrphanCamera(deviceId) {
+    if (orphanCameraFeed.srcObject) {
+      orphanCameraFeed.srcObject.getTracks().forEach(function (t) { t.stop(); });
+    }
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      orphanCameraFeed.srcObject = stream;
+      await orphanCameraFeed.play();
+    } catch (err) {
+      console.error('Orphan camera start failed:', err);
+      orphanPrompt.textContent = 'Failed to start camera';
+    }
+  }
+
+  orphanCameraSelect.addEventListener('change', function () {
+    startOrphanCamera(orphanCameraSelect.value);
+  });
+
+  function captureOrphanFrame() {
+    var ctx = orphanCaptureCanvas.getContext('2d');
+    orphanCaptureCanvas.width = orphanCameraFeed.videoWidth;
+    orphanCaptureCanvas.height = orphanCameraFeed.videoHeight;
+    ctx.drawImage(orphanCameraFeed, 0, 0);
+    return orphanCaptureCanvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+  }
+
+  btnOrphanCapture.addEventListener('click', function () {
+    var photo = captureOrphanFrame();
+    if (!photo) {
+      orphanStatus.textContent = 'Could not capture frame. Make sure camera is active.';
+      orphanStatus.className = 'orphan-status error';
+      return;
+    }
+
+    // Flash effect
+    orphanFlash.classList.add('flash');
+    setTimeout(function () { orphanFlash.classList.remove('flash'); }, 200);
+
+    orphanPrompt.textContent = 'Photo captured! Searching for matches...';
+    btnOrphanCapture.disabled = true;
+    btnOrphanCapture.textContent = 'SEARCHING...';
+    orphanStatus.textContent = 'Analyzing garment and comparing against database. This may take a moment...';
+    orphanStatus.className = 'orphan-status searching';
+    orphanMatchList.innerHTML = '';
+
+    fetch('/api/orphan/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orphanPhoto: photo }),
+    })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (data.error && data.error.includes('not configured')) {
-          showError(orphanError, 'Database not configured.');
+        if (data.error) {
+          orphanStatus.textContent = 'Error: ' + data.error;
+          orphanStatus.className = 'orphan-status error';
           return;
         }
-        if (!data.found) {
-          showError(orphanError, 'No garment found with barcode "' + escapeHtml(barcode) + '".');
-          return;
-        }
-        showOrphanResults(data.garment, data.orders || []);
+        displayOrphanMatches(data);
       })
       .catch(function (err) {
-        showError(orphanError, 'Lookup failed: ' + err.message);
+        orphanStatus.textContent = 'Search failed: ' + err.message;
+        orphanStatus.className = 'orphan-status error';
       })
       .finally(function () {
-        btnOrphanLookup.disabled = false;
-        btnOrphanLookup.textContent = 'LOOK UP GARMENT';
+        btnOrphanCapture.disabled = false;
+        btnOrphanCapture.textContent = 'CAPTURE & SEARCH';
+        orphanPrompt.textContent = 'Present the orphan garment in front of the camera';
       });
-  }
-
-  function showOrphanResults(garment, orders) {
-    orphanResults.classList.remove('hidden');
-
-    orphanBarcode.textContent = 'Barcode: ' + garment.barcode;
-
-    // Photos
-    orphanPhotos.innerHTML = '';
-    if (garment.photo_front_url) {
-      var img = document.createElement('img');
-      img.src = garment.photo_front_url;
-      img.alt = 'Front photo';
-      orphanPhotos.appendChild(img);
-    }
-    if (garment.photo_label_url) {
-      var img2 = document.createElement('img');
-      img2.src = garment.photo_label_url;
-      img2.alt = 'Label photo';
-      orphanPhotos.appendChild(img2);
-    }
-
-    // Garment details
-    var rows = [];
-    if (garment.garment_type) rows.push({ label: 'Type', value: garment.garment_type });
-    if (garment.color) rows.push({ label: 'Color', value: garment.color });
-    if (garment.brand) rows.push({ label: 'Brand', value: garment.brand });
-    if (garment.fiber_content) rows.push({ label: 'Fiber', value: garment.fiber_content });
-    if (garment.care_dry_clean) rows.push({ label: 'Dry Clean', value: garment.care_dry_clean });
-    if (garment.care_washing) rows.push({ label: 'Washing', value: garment.care_washing });
-    if (garment.care_drying) rows.push({ label: 'Drying', value: garment.care_drying });
-    if (garment.care_ironing) rows.push({ label: 'Ironing', value: garment.care_ironing });
-    if (garment.care_bleaching) rows.push({ label: 'Bleaching', value: garment.care_bleaching });
-    if (garment.last_checked_in) {
-      rows.push({ label: 'Last checked in', value: new Date(garment.last_checked_in).toLocaleDateString() });
-    }
-    orphanDetails.innerHTML = rows.map(function (r) {
-      return '<div class="detail-row"><span class="detail-label">' + escapeHtml(r.label) + '</span><span class="detail-value">' + escapeHtml(r.value) + '</span></div>';
-    }).join('');
-
-    // Order / customer info
-    if (orders.length === 0) {
-      orphanOrderInfo.innerHTML = '<div class="orphan-no-orders">This garment is not associated with any order.</div>';
-    } else {
-      orphanOrderInfo.innerHTML = orders.map(function (entry) {
-        var o = entry.order;
-        var c = entry.customer;
-        var html = '<div class="orphan-order-card">';
-        html += '<div class="order-card-title">Order: ' + escapeHtml(o.order_number || '#' + o.id) + '</div>';
-        if (c && c.name) {
-          html += '<div class="order-card-row"><span class="order-card-label">Customer</span><span class="order-card-value">' + escapeHtml(c.name) + '</span></div>';
-        }
-        if (c && c.phone) {
-          html += '<div class="order-card-row"><span class="order-card-label">Phone</span><span class="order-card-value">' + escapeHtml(c.phone) + '</span></div>';
-        }
-        if (c && c.email) {
-          html += '<div class="order-card-row"><span class="order-card-label">Email</span><span class="order-card-value">' + escapeHtml(c.email) + '</span></div>';
-        }
-        if (c && c.customer_barcode) {
-          html += '<div class="order-card-row"><span class="order-card-label">Customer ID</span><span class="order-card-value">' + escapeHtml(c.customer_barcode) + '</span></div>';
-        }
-        html += '<div class="order-card-row"><span class="order-card-label">Status</span><span class="order-card-value">' + escapeHtml(o.status || 'unknown') + '</span></div>';
-        if (o.created_at) {
-          html += '<div class="order-card-row"><span class="order-card-label">Created</span><span class="order-card-value">' + new Date(o.created_at).toLocaleDateString() + '</span></div>';
-        }
-        html += '</div>';
-        return html;
-      }).join('');
-    }
-  }
-
-  orphanBarcodeInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') { e.preventDefault(); doOrphanLookup(); }
   });
-  btnOrphanLookup.addEventListener('click', doOrphanLookup);
 
-  btnOrphanBack.addEventListener('click', function () {
+  function displayOrphanMatches(data) {
+    var matches = data.matches || [];
+    if (matches.length === 0) {
+      orphanStatus.textContent = 'No matches found in the database.';
+      orphanStatus.className = 'orphan-status';
+      orphanMatchList.innerHTML = '';
+      return;
+    }
+
+    orphanStatus.className = 'orphan-status';
+    orphanStatus.textContent = 'Found ' + matches.length + ' potential match' + (matches.length === 1 ? '' : 'es') + '.';
+
+    var html = '';
+
+    // Top match reasoning
+    if (data.topMatchReasoning) {
+      html += '<div class="orphan-match-reasoning"><strong>AI Analysis</strong>' + escapeHtml(data.topMatchReasoning) + '</div>';
+    }
+
+    matches.forEach(function (match, i) {
+      var conf = match.confidence || 0;
+      var confClass = conf >= 0.7 ? 'confidence-high' : conf >= 0.4 ? 'confidence-medium' : 'confidence-low';
+      var confLabel = Math.round(conf * 100) + '% match';
+      var isTop = i === 0 && conf >= 0.6;
+
+      html += '<div class="orphan-match-card' + (isTop ? ' top-match' : '') + '">';
+
+      // Photo thumbnail
+      if (match.photoUrl) {
+        html += '<img class="orphan-match-photo" src="' + escapeHtml(match.photoUrl) + '" alt="Garment photo">';
+      }
+
+      html += '<div class="orphan-match-header">';
+      html += '<span class="orphan-match-barcode">' + escapeHtml(match.candidateId || '') + '</span>';
+      html += '<span class="orphan-match-confidence ' + confClass + '">' + confLabel + '</span>';
+      html += '</div>';
+
+      html += '<div class="orphan-match-details">';
+      if (match.garmentType) html += '<div class="detail-row"><span class="detail-label">Type</span><span>' + escapeHtml(match.garmentType) + '</span></div>';
+      if (match.color) html += '<div class="detail-row"><span class="detail-label">Color</span><span>' + escapeHtml(match.color) + '</span></div>';
+      if (match.brand) html += '<div class="detail-row"><span class="detail-label">Brand</span><span>' + escapeHtml(match.brand) + '</span></div>';
+      if (match.orderNumber) html += '<div class="detail-row"><span class="detail-label">Order</span><span>' + escapeHtml(match.orderNumber) + '</span></div>';
+      if (match.customerName) html += '<div class="detail-row"><span class="detail-label">Customer</span><span>' + escapeHtml(match.customerName) + '</span></div>';
+      html += '</div>';
+
+      if (match.matchingFeatures && match.matchingFeatures.length > 0) {
+        html += '<div class="orphan-match-features"><strong>Matching features:</strong> ' + escapeHtml(match.matchingFeatures.join(', ')) + '</div>';
+      }
+
+      html += '</div>';
+    });
+
+    orphanMatchList.innerHTML = html;
+  }
+
+  btnOrphanCancel.addEventListener('click', function () {
+    // Stop orphan camera
+    if (orphanCameraFeed.srcObject) {
+      orphanCameraFeed.srcObject.getTracks().forEach(function (t) { t.stop(); });
+      orphanCameraFeed.srcObject = null;
+    }
+    orphanCameraReady = false;
     showScreen('start');
   });
 

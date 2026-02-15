@@ -19,29 +19,41 @@
     </div>
   </div>
 
-  <!-- ==================== SCREEN 1b: ORPHAN GARMENT LOOKUP ==================== -->
+  <!-- ==================== SCREEN 1b: ORPHAN GARMENT ==================== -->
   <div id="screenOrphan" class="screen">
-    <div class="screen-center">
-      <h1 class="screen-title">FIND ORPHAN GARMENT</h1>
-      <p class="screen-subtitle">Scan the garment's barcode tag:</p>
-      <div class="input-group">
-        <input type="text" id="orphanBarcodeInput" class="input-large" placeholder="Scan or type barcode..." autocomplete="off">
+    <div class="camera-header">
+      <div class="camera-header-left">
+        <span class="camera-meta highlight">ORPHAN GARMENT RECOVERY</span>
       </div>
-      <div class="btn-stack">
-        <button id="btnOrphanLookup" class="btn-large btn-primary">LOOK UP GARMENT</button>
+      <div class="camera-header-right">
+        <label for="orphanCameraSelect">Camera:</label>
+        <select id="orphanCameraSelect"></select>
       </div>
-      <div id="orphanError" class="error-msg hidden"></div>
-
-      <!-- Results appear here when garment is found -->
-      <div id="orphanResults" class="hidden">
-        <div class="found-badge" id="orphanFoundBadge">&#10003; GARMENT FOUND</div>
-        <div id="orphanBarcode" class="info-badge"></div>
-        <div id="orphanPhotos" class="exist-photos"></div>
-        <div id="orphanDetails" class="garment-details-card"></div>
-        <div id="orphanOrderInfo" class="orphan-order-info"></div>
+    </div>
+    <div class="orphan-layout">
+      <div class="camera-panel">
+        <div class="camera-container">
+          <video id="orphanCameraFeed" autoplay playsinline></video>
+          <canvas id="orphanCaptureCanvas" style="display:none;"></canvas>
+          <div class="bracket top-left"></div>
+          <div class="bracket top-right"></div>
+          <div class="bracket bottom-left"></div>
+          <div class="bracket bottom-right"></div>
+          <div id="orphanFlash" class="flash-overlay"></div>
+          <div id="orphanPrompt" class="state-prompt">Present the orphan garment in front of the camera</div>
+        </div>
+        <div class="damage-controls" id="orphanControls">
+          <button class="btn btn-damage" id="btnOrphanCapture">CAPTURE &amp; SEARCH</button>
+          <button class="btn btn-skip" id="btnOrphanCancel">CANCEL</button>
+        </div>
       </div>
-
-      <button id="btnOrphanBack" class="btn-back">&larr; Back</button>
+      <div class="orphan-results-panel" id="orphanResultsPanel">
+        <h3 class="orphan-results-title">Match Results</h3>
+        <div id="orphanStatus" class="orphan-status">
+          Take a photo of the orphan garment, then we'll search for matches in the database.
+        </div>
+        <div id="orphanMatchList" class="orphan-match-list"></div>
+      </div>
     </div>
   </div>
 
