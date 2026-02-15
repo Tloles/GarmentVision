@@ -288,15 +288,25 @@
   var btnOrphanCancel = document.getElementById('btnOrphanCancel');
   var orphanStatus = document.getElementById('orphanStatus');
   var orphanMatchList = document.getElementById('orphanMatchList');
+  var orphanFrozenPhoto = document.getElementById('orphanFrozenPhoto');
+  var btnOrphanRetake = document.getElementById('btnOrphanRetake');
   var orphanCameraReady = false;
+
+  function resetOrphanToLive() {
+    orphanFrozenPhoto.classList.add('hidden');
+    orphanCameraFeed.style.display = '';
+    btnOrphanCapture.style.display = '';
+    btnOrphanRetake.style.display = 'none';
+    btnOrphanCapture.disabled = false;
+    btnOrphanCapture.textContent = 'CAPTURE & SEARCH';
+    orphanPrompt.textContent = 'Present the orphan garment in front of the camera';
+  }
 
   btnOrphan.addEventListener('click', function () {
     orphanStatus.textContent = 'Present the orphan garment in front of the camera, then click CAPTURE & SEARCH.';
     orphanStatus.className = 'orphan-status';
     orphanMatchList.innerHTML = '';
-    orphanPrompt.textContent = 'Present the orphan garment in front of the camera';
-    btnOrphanCapture.disabled = false;
-    btnOrphanCapture.textContent = 'CAPTURE & SEARCH';
+    resetOrphanToLive();
     showScreen('orphan');
     initOrphanCamera();
   });
@@ -365,9 +375,13 @@
     orphanFlash.classList.add('flash');
     setTimeout(function () { orphanFlash.classList.remove('flash'); }, 200);
 
-    orphanPrompt.textContent = 'Photo captured! Searching for matches...';
-    btnOrphanCapture.disabled = true;
-    btnOrphanCapture.textContent = 'SEARCHING...';
+    // Freeze: show captured photo, hide live feed
+    orphanFrozenPhoto.src = 'data:image/jpeg;base64,' + photo;
+    orphanFrozenPhoto.classList.remove('hidden');
+    orphanCameraFeed.style.display = 'none';
+    orphanPrompt.textContent = 'Searching for matches...';
+    btnOrphanCapture.style.display = 'none';
+    btnOrphanRetake.style.display = '';
     orphanStatus.textContent = 'Analyzing garment and comparing against database. This may take a moment...';
     orphanStatus.className = 'orphan-status searching';
     orphanMatchList.innerHTML = '';
@@ -391,10 +405,15 @@
         orphanStatus.className = 'orphan-status error';
       })
       .finally(function () {
-        btnOrphanCapture.disabled = false;
-        btnOrphanCapture.textContent = 'CAPTURE & SEARCH';
-        orphanPrompt.textContent = 'Present the orphan garment in front of the camera';
+        orphanPrompt.textContent = 'Photo captured — review matches or retake';
       });
+  });
+
+  btnOrphanRetake.addEventListener('click', function () {
+    resetOrphanToLive();
+    orphanStatus.textContent = 'Present the orphan garment in front of the camera, then click CAPTURE & SEARCH.';
+    orphanStatus.className = 'orphan-status';
+    orphanMatchList.innerHTML = '';
   });
 
   function displayOrphanMatches(data) {

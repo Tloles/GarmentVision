@@ -34,6 +34,7 @@
       <div class="camera-panel">
         <div class="camera-container">
           <video id="orphanCameraFeed" autoplay playsinline></video>
+          <img id="orphanFrozenPhoto" class="orphan-frozen-photo hidden" alt="Captured orphan garment">
           <canvas id="orphanCaptureCanvas" style="display:none;"></canvas>
           <div class="bracket top-left"></div>
           <div class="bracket top-right"></div>
@@ -44,6 +45,7 @@
         </div>
         <div class="damage-controls" id="orphanControls">
           <button class="btn btn-damage" id="btnOrphanCapture">CAPTURE &amp; SEARCH</button>
+          <button class="btn btn-skip" id="btnOrphanRetake" style="display:none;">RETAKE PHOTO</button>
           <button class="btn btn-skip" id="btnOrphanCancel">CANCEL</button>
         </div>
       </div>
