@@ -91,7 +91,11 @@
   var existDetails = document.getElementById('existDetails');
   var existPhotos = document.getElementById('existPhotos');
   var btnAddExisting = document.getElementById('btnAddExisting');
+  var btnEditExisting = document.getElementById('btnEditExisting');
   var btnRescanExisting = document.getElementById('btnRescanExisting');
+  var existEditActions = document.getElementById('existEditActions');
+  var btnSaveExisting = document.getElementById('btnSaveExisting');
+  var btnCancelEdit = document.getElementById('btnCancelEdit');
   var btnExistBack = document.getElementById('btnExistBack');
 
   // Screen 4 (camera) — core elements
@@ -791,7 +795,98 @@
     goToCameraCapture();
   });
 
+  // --- Edit Info (no rescan) ---
+
+  var existEditFields = [
+    { key: 'garment_type', label: 'Type' },
+    { key: 'color', label: 'Color' },
+    { key: 'brand', label: 'Brand' },
+    { key: 'fiber_content', label: 'Fiber' },
+    { key: 'care_dry_clean', label: 'Dry Clean' },
+    { key: 'care_washing', label: 'Washing' },
+    { key: 'care_drying', label: 'Drying' },
+    { key: 'care_ironing', label: 'Ironing' },
+    { key: 'care_bleaching', label: 'Bleaching' },
+  ];
+
+  function exitEditMode() {
+    existEditActions.classList.add('hidden');
+    btnAddExisting.parentElement.classList.remove('hidden');
+    if (pendingExistingGarment) showExistingGarment(pendingExistingGarment);
+  }
+
+  btnEditExisting.addEventListener('click', function () {
+    if (!pendingExistingGarment) return;
+    var g = pendingExistingGarment;
+
+    // Build editable rows
+    existDetails.innerHTML = existEditFields.map(function (f) {
+      var val = g[f.key] || '';
+      return '<div class="detail-row editing">' +
+        '<label class="detail-label">' + escapeHtml(f.label) + '</label>' +
+        '<input class="detail-input" data-field="' + f.key + '" value="' + escapeHtml(val) + '">' +
+        '</div>';
+    }).join('');
+
+    // Swap button groups
+    btnAddExisting.parentElement.classList.add('hidden');
+    existEditActions.classList.remove('hidden');
+  });
+
+  btnCancelEdit.addEventListener('click', function () {
+    exitEditMode();
+  });
+
+  btnSaveExisting.addEventListener('click', function () {
+    if (!pendingExistingGarment) return;
+    var inputs = existDetails.querySelectorAll('.detail-input');
+    var updates = {};
+    inputs.forEach(function (inp) {
+      updates[inp.getAttribute('data-field')] = inp.value.trim();
+    });
+
+    btnSaveExisting.disabled = true;
+    btnSaveExisting.textContent = 'SAVING...';
+
+    fetch('/api/garment/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        barcode: pendingExistingGarment.barcode,
+        garmentType: updates.garment_type,
+        color: updates.color,
+        brand: updates.brand,
+        fiberContent: updates.fiber_content,
+        careDryClean: updates.care_dry_clean,
+        careWashing: updates.care_washing,
+        careDrying: updates.care_drying,
+        careIroning: updates.care_ironing,
+        careBleaching: updates.care_bleaching,
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        btnSaveExisting.disabled = false;
+        btnSaveExisting.textContent = 'SAVE CHANGES';
+        if (data.error) {
+          alert('Save failed: ' + data.error);
+          return;
+        }
+        // Update local garment object with edits
+        Object.keys(updates).forEach(function (k) {
+          pendingExistingGarment[k] = updates[k];
+        });
+        exitEditMode();
+      })
+      .catch(function () {
+        btnSaveExisting.disabled = false;
+        btnSaveExisting.textContent = 'SAVE CHANGES';
+        alert('Save failed — check your connection.');
+      });
+  });
+
   btnExistBack.addEventListener('click', function () {
+    exitEditMode();
     enterGarmentScreen();
   });
 

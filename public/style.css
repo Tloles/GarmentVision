@@ -144,6 +144,13 @@ body {
 }
 .btn-secondary:hover:not(:disabled) { background: #F0F6FF; }
 
+.btn-tertiary {
+  background: var(--bg-white);
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+.btn-tertiary:hover:not(:disabled) { background: var(--bg); }
+
 .btn-success {
   background: var(--success);
   color: #fff;
@@ -375,6 +382,25 @@ body {
 .garment-details-card .detail-value {
   color: var(--text);
   font-weight: 500;
+}
+.garment-details-card .detail-row.editing {
+  align-items: center;
+}
+.garment-details-card .detail-input {
+  flex: 1;
+  text-align: right;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--bg);
+  outline: none;
+}
+.garment-details-card .detail-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.15);
 }
 
 .exist-photos {
