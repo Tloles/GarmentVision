@@ -1,7 +1,7 @@
 {
-  "name": "dry-cleaning-check-in-tool",
+  "name": "garmentvision",
   "version": "1.0.0",
-  "description": "Garment intake system with camera-based AI analysis for dry cleaning businesses",
+  "description": "GarmentVision — AI-powered garment intake system for dry cleaning businesses",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

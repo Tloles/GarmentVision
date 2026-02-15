@@ -59,11 +59,36 @@ body {
 }
 
 /* ---- TYPOGRAPHY ---- */
+.app-logo-placeholder {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  background: var(--primary);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(9, 105, 218, 0.3);
+}
+.app-logo-placeholder::after {
+  content: 'GV';
+  color: #fff;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
 .app-title {
   font-size: 28px;
   font-weight: 700;
   letter-spacing: 3px;
   color: var(--text);
+  margin-bottom: 8px;
+  text-align: center;
+}
+.app-tagline {
+  font-size: 14px;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
   margin-bottom: 48px;
   text-align: center;
 }
