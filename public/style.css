@@ -366,6 +366,52 @@ body {
   border: 2px solid var(--border);
 }
 
+/* ---- ORPHAN RESULTS ---- */
+.orphan-order-info {
+  width: 100%;
+  max-width: 480px;
+  margin-bottom: 16px;
+}
+.orphan-order-card {
+  background: var(--bg-white);
+  border: 2px solid var(--primary);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 12px;
+}
+.orphan-order-card .order-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 8px;
+}
+.orphan-order-card .order-card-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 14px;
+}
+.orphan-order-card .order-card-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.orphan-order-card .order-card-value {
+  color: var(--text);
+  font-weight: 500;
+}
+.orphan-no-orders {
+  background: #FEF3C7;
+  border: 1px solid #F59E0B;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+  color: #92400E;
+  text-align: center;
+  width: 100%;
+  max-width: 480px;
+  margin-bottom: 16px;
+}
+
 /* ---- REVIEW (Screen 5) ---- */
 .review-order-info {
   text-align: center;

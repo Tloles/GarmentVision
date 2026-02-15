@@ -778,6 +778,60 @@ Rank all candidates by confidence. If no candidates are strong matches (all conf
   }
 });
 
+// Orphan garment lookup — find garment + its order/customer
+app.get('/api/orphan/lookup/:barcode', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured', found: false });
+  try {
+    const { barcode } = req.params;
+
+    // Look up the garment
+    const { data: garment, error: gErr } = await supabase
+      .from('garments')
+      .select('*')
+      .eq('barcode', barcode)
+      .maybeSingle();
+    if (gErr) return res.status(500).json({ error: gErr.message, found: false });
+    if (!garment) return res.json({ found: false });
+
+    // Find order_items referencing this garment barcode
+    const { data: items, error: iErr } = await supabase
+      .from('order_items')
+      .select('order_id')
+      .eq('garment_barcode', barcode);
+    if (iErr) return res.status(500).json({ error: iErr.message, found: false });
+
+    let orders = [];
+    if (items && items.length > 0) {
+      const orderIds = [...new Set(items.map(i => i.order_id))];
+      const { data: orderData, error: oErr } = await supabase
+        .from('orders')
+        .select('*')
+        .in('id', orderIds)
+        .order('created_at', { ascending: false });
+      if (!oErr && orderData) {
+        // Look up customer info for each order
+        for (const order of orderData) {
+          let customer = null;
+          if (order.customer_barcode) {
+            const { data: cust } = await supabase
+              .from('customers')
+              .select('*')
+              .eq('customer_barcode', order.customer_barcode)
+              .maybeSingle();
+            if (cust) customer = cust;
+          }
+          orders.push({ order, customer });
+        }
+      }
+    }
+
+    res.json({ found: true, garment, orders });
+  } catch (err) {
+    console.error('Orphan lookup error:', err.message);
+    res.status(500).json({ error: err.message, found: false });
+  }
+});
+
 // ---- CUSTOMER ENDPOINTS ----
 
 // Get next customer barcode

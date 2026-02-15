@@ -19,6 +19,32 @@
     </div>
   </div>
 
+  <!-- ==================== SCREEN 1b: ORPHAN GARMENT LOOKUP ==================== -->
+  <div id="screenOrphan" class="screen">
+    <div class="screen-center">
+      <h1 class="screen-title">FIND ORPHAN GARMENT</h1>
+      <p class="screen-subtitle">Scan the garment's barcode tag:</p>
+      <div class="input-group">
+        <input type="text" id="orphanBarcodeInput" class="input-large" placeholder="Scan or type barcode..." autocomplete="off">
+      </div>
+      <div class="btn-stack">
+        <button id="btnOrphanLookup" class="btn-large btn-primary">LOOK UP GARMENT</button>
+      </div>
+      <div id="orphanError" class="error-msg hidden"></div>
+
+      <!-- Results appear here when garment is found -->
+      <div id="orphanResults" class="hidden">
+        <div class="found-badge" id="orphanFoundBadge">&#10003; GARMENT FOUND</div>
+        <div id="orphanBarcode" class="info-badge"></div>
+        <div id="orphanPhotos" class="exist-photos"></div>
+        <div id="orphanDetails" class="garment-details-card"></div>
+        <div id="orphanOrderInfo" class="orphan-order-info"></div>
+      </div>
+
+      <button id="btnOrphanBack" class="btn-back">&larr; Back</button>
+    </div>
+  </div>
+
   <!-- ==================== SCREEN 2: CUSTOMER LOOKUP ==================== -->
   <div id="screenCustomer" class="screen">
     <div class="screen-center">

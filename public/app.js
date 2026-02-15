@@ -38,6 +38,7 @@
     existingGarment: document.getElementById('screenExistingGarment'),
     camera: document.getElementById('screenCamera'),
     review: document.getElementById('screenReview'),
+    orphan: document.getElementById('screenOrphan'),
   };
 
   function showScreen(name) {
@@ -49,6 +50,8 @@
       setTimeout(function () { garmentBarcodeInput.focus(); }, 100);
     } else if (name === 'newCustomer') {
       setTimeout(function () { custNameInput.focus(); }, 100);
+    } else if (name === 'orphan') {
+      setTimeout(function () { orphanBarcodeInput.focus(); }, 100);
     }
   }
 
@@ -277,8 +280,130 @@
     hideError(custError);
   });
 
+  // ---- Orphan DOM refs ----
+  var orphanBarcodeInput = document.getElementById('orphanBarcodeInput');
+  var btnOrphanLookup = document.getElementById('btnOrphanLookup');
+  var orphanError = document.getElementById('orphanError');
+  var orphanResults = document.getElementById('orphanResults');
+  var orphanBarcode = document.getElementById('orphanBarcode');
+  var orphanPhotos = document.getElementById('orphanPhotos');
+  var orphanDetails = document.getElementById('orphanDetails');
+  var orphanOrderInfo = document.getElementById('orphanOrderInfo');
+  var btnOrphanBack = document.getElementById('btnOrphanBack');
+
   btnOrphan.addEventListener('click', function () {
-    alert('Coming soon — Orphan garment recovery will be available in a future update.');
+    orphanBarcodeInput.value = '';
+    hideError(orphanError);
+    orphanResults.classList.add('hidden');
+    showScreen('orphan');
+  });
+
+  function doOrphanLookup() {
+    var barcode = orphanBarcodeInput.value.trim();
+    if (!barcode) return;
+    hideError(orphanError);
+    orphanResults.classList.add('hidden');
+    btnOrphanLookup.disabled = true;
+    btnOrphanLookup.textContent = 'LOOKING UP...';
+
+    fetch('/api/orphan/lookup/' + encodeURIComponent(barcode))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error && data.error.includes('not configured')) {
+          showError(orphanError, 'Database not configured.');
+          return;
+        }
+        if (!data.found) {
+          showError(orphanError, 'No garment found with barcode "' + escapeHtml(barcode) + '".');
+          return;
+        }
+        showOrphanResults(data.garment, data.orders || []);
+      })
+      .catch(function (err) {
+        showError(orphanError, 'Lookup failed: ' + err.message);
+      })
+      .finally(function () {
+        btnOrphanLookup.disabled = false;
+        btnOrphanLookup.textContent = 'LOOK UP GARMENT';
+      });
+  }
+
+  function showOrphanResults(garment, orders) {
+    orphanResults.classList.remove('hidden');
+
+    orphanBarcode.textContent = 'Barcode: ' + garment.barcode;
+
+    // Photos
+    orphanPhotos.innerHTML = '';
+    if (garment.photo_front_url) {
+      var img = document.createElement('img');
+      img.src = garment.photo_front_url;
+      img.alt = 'Front photo';
+      orphanPhotos.appendChild(img);
+    }
+    if (garment.photo_label_url) {
+      var img2 = document.createElement('img');
+      img2.src = garment.photo_label_url;
+      img2.alt = 'Label photo';
+      orphanPhotos.appendChild(img2);
+    }
+
+    // Garment details
+    var rows = [];
+    if (garment.garment_type) rows.push({ label: 'Type', value: garment.garment_type });
+    if (garment.color) rows.push({ label: 'Color', value: garment.color });
+    if (garment.brand) rows.push({ label: 'Brand', value: garment.brand });
+    if (garment.fiber_content) rows.push({ label: 'Fiber', value: garment.fiber_content });
+    if (garment.care_dry_clean) rows.push({ label: 'Dry Clean', value: garment.care_dry_clean });
+    if (garment.care_washing) rows.push({ label: 'Washing', value: garment.care_washing });
+    if (garment.care_drying) rows.push({ label: 'Drying', value: garment.care_drying });
+    if (garment.care_ironing) rows.push({ label: 'Ironing', value: garment.care_ironing });
+    if (garment.care_bleaching) rows.push({ label: 'Bleaching', value: garment.care_bleaching });
+    if (garment.last_checked_in) {
+      rows.push({ label: 'Last checked in', value: new Date(garment.last_checked_in).toLocaleDateString() });
+    }
+    orphanDetails.innerHTML = rows.map(function (r) {
+      return '<div class="detail-row"><span class="detail-label">' + escapeHtml(r.label) + '</span><span class="detail-value">' + escapeHtml(r.value) + '</span></div>';
+    }).join('');
+
+    // Order / customer info
+    if (orders.length === 0) {
+      orphanOrderInfo.innerHTML = '<div class="orphan-no-orders">This garment is not associated with any order.</div>';
+    } else {
+      orphanOrderInfo.innerHTML = orders.map(function (entry) {
+        var o = entry.order;
+        var c = entry.customer;
+        var html = '<div class="orphan-order-card">';
+        html += '<div class="order-card-title">Order: ' + escapeHtml(o.order_number || '#' + o.id) + '</div>';
+        if (c && c.name) {
+          html += '<div class="order-card-row"><span class="order-card-label">Customer</span><span class="order-card-value">' + escapeHtml(c.name) + '</span></div>';
+        }
+        if (c && c.phone) {
+          html += '<div class="order-card-row"><span class="order-card-label">Phone</span><span class="order-card-value">' + escapeHtml(c.phone) + '</span></div>';
+        }
+        if (c && c.email) {
+          html += '<div class="order-card-row"><span class="order-card-label">Email</span><span class="order-card-value">' + escapeHtml(c.email) + '</span></div>';
+        }
+        if (c && c.customer_barcode) {
+          html += '<div class="order-card-row"><span class="order-card-label">Customer ID</span><span class="order-card-value">' + escapeHtml(c.customer_barcode) + '</span></div>';
+        }
+        html += '<div class="order-card-row"><span class="order-card-label">Status</span><span class="order-card-value">' + escapeHtml(o.status || 'unknown') + '</span></div>';
+        if (o.created_at) {
+          html += '<div class="order-card-row"><span class="order-card-label">Created</span><span class="order-card-value">' + new Date(o.created_at).toLocaleDateString() + '</span></div>';
+        }
+        html += '</div>';
+        return html;
+      }).join('');
+    }
+  }
+
+  orphanBarcodeInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); doOrphanLookup(); }
+  });
+  btnOrphanLookup.addEventListener('click', doOrphanLookup);
+
+  btnOrphanBack.addEventListener('click', function () {
+    showScreen('start');
   });
 
   // ========================================
