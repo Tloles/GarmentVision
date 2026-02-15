@@ -476,8 +476,10 @@ body {
 
 .camera-layout {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: 1.85fr 1fr;
   height: calc(100vh - 48px);
+  margin: 0;
+  padding: 0;
   transition: grid-template-columns 0.4s ease;
 }
 
@@ -606,6 +608,7 @@ body {
   display: flex; flex-direction: column;
   background: var(--bg-white); border-left: 1px solid var(--border);
   overflow: hidden;
+  min-width: 0;
 }
 
 /* ---- Progressive Navigation ---- */
@@ -637,7 +640,7 @@ body {
 
 /* ---- Progressive Scroll Area ---- */
 .prog-scroll {
-  flex: 1; overflow-y: auto; padding: 14px;
+  flex: 1; overflow-y: auto; padding: 10px;
 }
 .prog-scroll::-webkit-scrollbar { width: 4px; }
 .prog-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
@@ -647,9 +650,10 @@ body {
   display: none;
   border: 1px solid var(--border);
   border-radius: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   background: var(--bg-white);
   overflow: hidden;
+  width: 100%;
 }
 .prog-section.sec-active {
   display: block;
@@ -873,7 +877,7 @@ body {
 
 /* ---- RESPONSIVE ---- */
 @media (max-width: 900px) {
-  .camera-layout { grid-template-columns: 1fr 300px; }
+  .camera-layout { grid-template-columns: 1.4fr 1fr; }
 }
 @media (max-width: 700px) {
   .camera-layout { grid-template-columns: 1fr; }
